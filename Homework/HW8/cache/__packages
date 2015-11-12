@@ -1,0 +1,12 @@
+base
+coda
+dplyr
+knitr
+lattice
+lme4
+Matrix
+nlme
+R2jags
+Rcpp
+rjags
+xtable

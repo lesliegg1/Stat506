@@ -1,0 +1,10 @@
+\contentsline {section}{\numberline {1}Computer Coding}{1}
+\contentsline {subsubsection}{\numberline {1.0.1}R style guide}{1}
+\contentsline {subsubsection}{\numberline {1.0.2}Homework Redos}{3}
+\contentsline {subsubsection}{\numberline {1.0.3}Reflection}{11}
+\contentsline {section}{\numberline {2}Multiple Imputation}{13}
+\contentsline {section}{\numberline {3}R Code Appendix}{17}
+\contentsline {subsection}{\numberline {3.1}Computer Coding}{17}
+\contentsline {subsubsection}{\numberline {3.1.1}505 Homework Problem 11}{17}
+\contentsline {subsubsection}{\numberline {3.1.2}506 Homework Problem 7}{19}
+\contentsline {subsection}{\numberline {3.2}Multiple Imputation}{20}

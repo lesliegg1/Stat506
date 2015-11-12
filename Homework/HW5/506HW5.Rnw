@@ -1,0 +1,492 @@
+\documentclass{article}
+
+  %% LaTeX margin settings:
+\setlength{\textwidth}{6.5in}
+\setlength{\textheight}{9in}
+\setlength{\oddsidemargin}{0in}
+\setlength{\evensidemargin}{0in}
+\setlength{\topmargin}{-1.5cm}
+\setlength{\maxwidth}{6.5in}
+
+\newcommand{\R}{{\sf R}}
+\newcommand{\bfbeta}{\mbox{\boldmath $\beta$}}
+\newcommand{\bfep}{\mbox{\boldmath $\epsilon$}}
+\newcommand{\bfD}{\mbox{\boldmath $D$}}
+\newcommand{\bfL}{\mbox{\boldmath $L$}}
+\newcommand{\bfR}{\mbox{\boldmath $R$}}
+\newcommand{\bfmu}{\mbox{\boldmath $\mu$}}
+\newcommand{\bfV}{\mbox{\boldmath $V$}}
+\newcommand{\bfX}{\mbox{\boldmath $X$}}
+
+\newcommand{\bfy}{\mbox{\boldmath $y$}}
+\newcommand{\bfz}{\mbox{\boldmath $z$}}
+\newcommand{\bfSig}{\mbox{\boldmath $\Sigma$}}
+\newcommand{\tr}{^{\sf T}}
+\newcommand{\inv}{^{-1}}
+
+
+\begin{document}
+
+<<setup, include=FALSE, cache=FALSE>>=
+opts_chunk$set(fig.width=5, fig.height=4, out.width='\\linewidth', dev='pdf', concordance=TRUE, size='footnotesize')
+options(replace.assign=TRUE,width=72, digits = 3, 
+        show.signif.stars = FALSE)
+@
+%% replace = with <-
+%% R output can go to 112 characters per line before wrapping
+%% print 3 significant digits
+
+<<jimsfunctions, echo=FALSE>>=
+adj.rsquared <- function(lm.obj,...){
+        # function to compute the adjusted R.squared given one 
+         # or more linear model objects
+        adj.rsquared1 <- function(lm.obj){
+          # function to compute the adjusted R.squared given 
+          # one linear model object 
+          summ <- summary(lm.obj)
+          unlist(list(df = summ$df[1],"R^2adj"=1 - ((1 - summ$r.squared) *
+                (sum(summ$df[1:2]) - 1))/summ$df[2]))
+        }
+    if ((rt <- nargs()) > 1) {
+        object <- list(lm.obj, ...)
+        val <- lapply(object, adj.rsquared1)
+        val <- as.data.frame(t(matrix(unlist(val),nrow=2)))
+        names(val) <- c("df", "R^2adj")
+        row.names(val) <- as.character(match.call()[-1])
+        val
+    }
+    else {
+         adj.rsquared1(lm.obj)
+    } 
+}
+
+
+scale.sum <- function(X)
+  {  ## Function to rescale columns of a matrix to sum to 1
+   as.matrix(X) %*% diag(1/apply(as.matrix(X), 2, sum))
+  }
+
+vif <-  function(x)
+{   ## Function to compute variance inflation factors of a model matrix
+   # input can be am "lm" object, a dataframe, or a matrix
+  value <- NULL
+        #Check to see if x is an lm.object
+	if(!is.null(A <- attr(x, "class"))){
+	  if(  A == "lm") {
+		x <- model.matrix(x)
+              }
+        }
+	namesx <- dimnames(x)[[2]]
+	if("(Intercept)" %in% namesx ) {
+			x <- x[, -1]
+			value <- 0
+	}    # VIF of a 1s column is taken to be 0
+	value <- c(value, diag(solve(cor(x))))
+        names(value) <- namesx
+        value
+}
+
+tol <- function(x)
+{ ## Function to compute tolerances of a model matrix
+  vif <- vif(x)
+  nonfin <- (abs(vif)<1e-17)
+  vif[!nonfin] <- 1/vif[!nonfin]
+  vif[nonfin] <- NA
+  vif
+}
+
+ collin <- function(X, center=F)
+{     ## function to compute the components of  variance of beta.hat
+      ## from Belsley, Kuh and Welsch (1980) _Regression Diagnostics_,
+      ##  J.Wiley, New York
+   # input can be an "lm" object, a dataframe, or a matrix
+   #  If center = TRUE, then columns (except an intercept) are
+   #  centered at 0 before variance proportions are computed.
+   if(!is.null(A <- attr(X, "class")))
+     if(A[1] == "lm") 
+		X <- model.matrix(X)  ## (checks for linear model object)
+   X <- as.matrix(X)                  ## handles a data frame
+   d <- dim(X)[2]
+   if(length(mnames <- dimnames(X)[[2]])!=0){ 
+        mnames <- c("Eignvls","cond",  mnames)
+      }
+   else mnames <- c("Eignvls","cond",paste("b",0:(d-1),sep=""))
+   if(center) {
+          OKcols <- apply(X,2, function(x) max(x) - min(x) > 1e-10)
+              X[,OKcols] <- scale(X[,OKcols], TRUE, FALSE)
+     }
+   X <- scale.sum(X)
+   Eig <- eigen( crossprod(X))
+   scaler <- d/sum(Eig$values)
+   condtn <- sqrt(max(Eig$values)/Eig$values)
+   phi <-    diag(1/Eig$values) %*%  t(Eig$vectors)^2 # square each element
+   phi <-   scale.sum(phi)
+   matrix(cbind(Eig$values*scaler, condtn,phi),nrow=d,
+          dimnames=list(1:d,mnames))
+}
+@
+
+
+\large
+\begin{center}
+{\Large \bf  Stat 506 Assignment 5 \vspace{.2in}} \\ 
+{\it Leslie Gains-Germain}
+\end{center}
+February $20$, $2015$
+
+
+<<readdat, echo=FALSE>>=
+baseball <- read.csv("~/Documents/Stat506/Homework/HW5/BaseballStats2000.csv", head=T)
+@
+
+{\it I first looked at the following exploratory plots. Salaries appear to increase across batting average (BA), slugging percentage, on base percentage (OBP), and batting average on ball in play (BABIP). Salaries appear to decrease across stolen bases (SB), caught stealing (CS), base on balls (BB), and strikeouts (SO).}
+
+<<exploreplots, echo=FALSE, message=FALSE, message=FALSE, fig.width=10>>=
+par(mfrow=c(1,4))
+with(baseball, plot(yearID, salary))
+with(baseball, plot(G, salary))
+with(baseball, plot(AB, salary))
+with(baseball, plot(R, salary))
+with(baseball, plot(H, salary))
+with(baseball, plot(X2B, salary))
+with(baseball, plot(HR, salary))
+with(baseball, plot(RBI, salary))
+with(baseball, plot(SB, salary))
+with(baseball, plot(CS, salary))
+with(baseball, plot(BB, salary))
+with(baseball, plot(SO, salary))
+with(baseball, plot(BA, salary))
+with(baseball, plot(SlugPct, salary))
+with(baseball, plot(OBP, salary))
+with(baseball, plot(BABIP, salary))
+@
+
+\begin{enumerate}
+
+\item Fit salary using all other columns except playerID and teamID and check to see if you want to transform the response variable.
+
+{\it I fit salary on all other columns except playerID and teamID. I saw problems with constant variance and normality assumptions in the residual plots. The boxcox procedure suggested a log transformation, so I fit a model with log salary as the response variable. The histogram below shows that salaries exhibit a highly skewed distribution, but log salaries are more symmetric. The residual plots also look better after the transformation. }
+
+<<salary, echo=FALSE, message=FALSE, fig.width=10, out.width="0.8\\linewidth">>=
+lm.ball <- lm(salary~., data=baseball[,c(2,4:25)])
+par(mfrow=c(1,2))
+plot(lm.ball, which=c(1:2), main="No Transformation")
+require(car)
+par(mfrow=c(1,1))
+boxCox(lm.ball)
+par(mfrow=c(1,2))
+#Yes, let's try a transformation-boxcox suggests log
+lm.log <- lm(log(salary)~., data=baseball[,c(2,4:25)])
+with(baseball, hist(salary, main="Salary"))
+with(baseball, hist(log(salary), main="Log Salary"))
+plot(lm.log, which=c(1:2), main="After log transformation")
+@
+
+\vspace{-0.1in}
+
+\item What multicollinearity issues does the full model have?
+
+{\it I first looked at the variance inflation factors and tolerances. There were some large variance inflation factors and small tolerances, which suggests that a multicollinearity issue is present.}
+
+\vspace{-0.15in}
+\begin{verbatim}
+
+> round(vif(lm.log),2)
+(Intercept)      yearID           G          AB           R           H 
+       0.00        1.10       16.27      109.90       33.80      114.23 
+        X2B         X3B          HR         RBI          SB          CS 
+      10.83        2.22       17.46       29.95        3.36        2.96 
+         BB          SO         IBB         HBP          SH          SF 
+       9.85        7.58        2.20        1.68        1.41        2.75 
+       GIDP          BA     SlugPct         OBP       BABIP 
+       3.69       23.09       11.51       12.09        3.08 
+       
+> round(tol(lm.log),5)
+(Intercept)      yearID           G          AB           R           H 
+         NA     0.91223     0.06145     0.00910     0.02959     0.00875 
+        X2B         X3B          HR         RBI          SB          CS 
+    0.09235     0.45112     0.05727     0.03339     0.29779     0.33838 
+         BB          SO         IBB         HBP          SH          SF 
+    0.10150     0.13200     0.45537     0.59352     0.70841     0.36428 
+       GIDP          BA     SlugPct         OBP       BABIP 
+    0.27134     0.04332     0.08691     0.08268     0.32500 
+\end{verbatim}
+
+<<pairs, echo=FALSE, include=FALSE>>=
+#find correlations for all pairs
+find.cor <- cor(baseball[,4:24], use="pairwise")
+find.cor
+#high correlation between games, at bats, runs, hits, and doubles
+pairs(baseball[,4:8])
+#May take out
+#year 
+#BB Base on Balls
+#IBB Intentional Walks
+#SF Sacrifice flies
+#GIDP Grounded into Double plays
+
+
+#ones that expect to be collinear
+#games, at bats, runs
+#ba, babip, obp
+#hits, strikeouts
+#home runs, doubles, triples, slgpct
+#Stolen bases, caught stealing because they are crowd pleasers
+@
+
+<<colin0, include=FALSE>>=
+#check collinearity measures
+#round(vif(lm.log),2)
+#round(tol(lm.log),5)
+round(collin(lm.log),3)
+#slightly different condition numbers when we use Jims function
+#Use colldiag so we can center later on
+require(perturb)
+colin <- as.data.frame(print(colldiag(baseball[,c(2,4:24)])))
+@
+
+{\it I then investigated further. I played around with using Jim's \verb+collin+ function, but eventually I settled on the \verb+colldiag+ function in the \verb+perturb+ package because it has the ability to center and scale predictor variables.\\
+
+The \verb+colldiag+ function outputs a $23x25$ matrix. This is too large to display here, so I just pulled out the important pieces. Below, I show the rows that had condition indexes larger than $30$, and I show only the columns that appeared to have multicollinearity issues. }
+
+{\it In the bottom row, we see that year is highly collinear with the intercept. This makes sense because we haven't centered year yet. In rows $5$ and $6$, we see that at bat (AB), hits (H), and batting average (BA) are collinear. In rows $4$ and $5$, we see that slugging percentage, on base percentage (OBP), and batting average on balls in play (BABIP) are collinear.}
+
+<<colin, echo=FALSE, message=FALSE, results='asis'>>=
+names(colin)[1] <- "condindx" 
+colin$condindx <- as.numeric(as.character(colin$condindx))
+require(dplyr)
+colin.more <- colin %>%
+  select(condindx, intercept, yearID, G, AB, R, H, HR, RBI) %>%
+  filter(condindx > 30)
+colin.next <- colin %>%
+  select(condindx, BB, SO, BA, SlugPct, OBP, BABIP) %>%
+  filter(condindx > 30)
+require(xtable)
+xtable(colin.more)
+xtable(colin.next)
+@
+
+{\it Here are two pairs plots that show the variables we identified as being collinear. There does appear to be strong relationships in each of the plots shown.}
+
+<<pairs2, echo=FALSE, out.width="0.8\\linewidth">>=
+pairs(select(baseball, c(AB, H, BA)))
+pairs(select(baseball, c(SlugPct, OBP, BABIP)))
+@
+
+
+
+\begin{enumerate}
+\item Does centering make them better or worse? Explain the impact of centering.
+
+{\it I centered and scaled the predictors, and part of the \verb+colldiag+ output is below. There is now only one condition  number larger than $30$ due to a collinearity issue between at bats and number of hits. This makes sense because in the plots above we saw a very strong linear relationship between at bats and hits.}
+
+<<center0, include=FALSE>>=
+require(perturb)
+colin.ctr <- as.data.frame(print(colldiag(baseball[,c(2,4:24)], scale=TRUE, center=TRUE)))
+@
+
+
+<<center, echo=FALSE, message=FALSE, results='asis'>>=
+names(colin.ctr)[1] <- "condindx"
+colin.ctr$condindx <- as.numeric(as.character(colin.ctr$condindx))
+#condition numbers all went less than thirty except the last
+colin.more <- colin.ctr %>%
+  select(condindx, yearID, G, AB, R, H, HR, RBI) %>%
+  filter(condindx > 20)
+colin.next <- colin.ctr %>%
+  select(condindx, BB, SO, BA, SlugPct, OBP, BABIP) %>%
+  filter(condindx > 20)
+require(xtable)
+print(xtable(colin.more), table.placement="h")
+print(xtable(colin.next), table.placement="h")
+@
+
+\item Which variables seem to be most highly multicollinear?
+{\it See my explanations above.}
+\end{enumerate}
+
+\item Try the step variable selection technique available in R. Does this “fix” the “multicollinearity problem”?
+
+{\it I used stepwise selection in R to choose a model. The \verb+step+ function kept $17$ of the $22$ predictors, removing runs (R), hits (H), stolen bases (SB), stolen flies (SF), and batting average (BA). }
+
+<<step, echo=FALSE, cache=TRUE, include=FALSE>>=
+step.fix <- step(lm.log, direction="both")
+step.choice <- baseball %>%
+  select(yearID, G, AB, X2B, X3B, HR, RBI, CS, BB, SO, IBB, HBP, SH, GIDP, SlugPct, OBP, BABIP)
+@
+
+{\it I examined the \verb+colldiag+ output with the model that R chose. Note that I centered and rescaled the predictors before looking at the collinearity output. Because hits (H) was removed, we do not see any multicollinearity issues (see partial output below). The largest condition number was $20.5$.}
+
+<<center01, include=FALSE>>=
+require(perturb)
+colin.step <- as.data.frame(print(colldiag(step.choice, scale=TRUE, center=TRUE)))
+@
+
+<<vifs, echo=FALSE, results='asis'>>=
+#vifs are still large
+#round(vif(step.fix),5)
+names(colin.step)[1] <- "condindx"
+colin.step$condindx <- as.numeric(as.character(colin.step$condindx))
+#condition numbers all went less than thirty except the last
+colin.more <- colin.step %>%
+  select(condindx, yearID, G, AB, X2B, X3B, HR, RBI)
+colin.next <- colin.step %>%
+  select(condindx, CS, BB, SO, IBB, HBP, SH, GIDP, SlugPct, OBP, BABIP)
+require(xtable)
+xtable(colin.more)
+print(xtable(colin.next), table.placement="h")
+@
+
+\newpage
+
+\item Export the data and import it into SAS. Use PROC REG.
+\begin{enumerate}
+\item Does the collin output agree (non-centered and centered) with the R version?
+
+{\it Yes, the collin output from SAS does agree with the R version. I've included part of the collin output below. We can see that the condition numbers at the proportion of variations are the same as the \verb+colldiag+ output in R. The centered output is shown below on the right.}
+
+\includegraphics[scale=0.5]{collin.png}
+\includegraphics[scale=0.5]{collinoint.png}
+
+\item Try some of the PROC REG selection methods to see if they “fix” the “multicollinearity problem”.
+
+{\it I used the PROC REG selection procedure in SAS, and a the chosen model contained $18$ of the $22$ variables. All variables were chosen except runs (R), hits (H), stolen bases (SB), and stolen flies (SF). After centering and rescaling, there are no multicollinearity issues in this model. Note that this is nearly the same model that R chose, but the stepwise procedure in R removed batting average (BA) while SAS left it in. In PROC REG, the default selection criteria is $R^2$ while in \verb+step+ the default selection criteria is AICC.}
+
+\includegraphics[scale=0.5]{collinstep.png}
+
+\end{enumerate}
+
+\item In SAS or R, what terms do we have to remove (or combine) to make the condition numbers all less than 30? Suppose that for some reason OBP has to be in the model. Does removing terms (other than BA) from the model change the estimated BA effect on salaries?
+
+{\it After centering and rescaling, the only term we need to remove from the model to ensure that all condition numbers are less than $30$ is hits (H). I looked at the coefficient estimates for the full model, and then I removed hits and looked at the coefficient estimates for this reduced model. The output is shown below. We can see that the coefficient for BA in the full model is $-1.3265$, and the coefficient for BA in the model without hits is $-1.1466$. So the effect of batting average on salaries is estimated to be less extreme when hits is removed. }
+
+\includegraphics[scale=0.5]{before.png}
+\includegraphics[scale=0.5]{after.png}
+
+\item Look again at the full model and the process you used in (e) to reduce the number of variables included. Did any coefficient estimates change markedly when another variable was removed?
+
+{\it We can see in the output above that the coefficient estimates are slightly different when hits is removed, but none of them change dramatically. All estimates keep the same sign, and most of the coefficient estimates change by less than $0.01$. The estimate of the batting average effect shows the largest change. Also notice that the standard errors all decrease when hits is removed.}
+
+
+
+\item Last week we saw that NFL teams have almost no variation in average salary. The cap on total team salary is enforced in football, but not so much in baseball. After reducing the full model try fitting a random team effect and see if the other estimates change. Explain your favorite model and summarize how OBP is related to salary in these data.
+
+{\it I chose the model selected by SAS in PROC REG. The output on the left (below) shows the model with team as a fixed effect. The output on the right is the model output with team as a random effect. The random effect model has an an AIC of $11537.6$. The team random effect is estimated to be $0.03048$, which suggests that there is more team to team variability in salaries than we saw in the NFL. \\
+
+The coefficient estimate for OBP changes from $-3.937$ to $-3.957$ when team is included as a random effect. This means that for a one point increase in on base percentage (OBP), salary is estimated to change by a multiplicative factor of $0.019$ given that all other variables accounted for in the model. \\
+
+\includegraphics[scale=0.5]{withoutteam.png}
+\includegraphics[scale=0.5]{withteam.png}
+
+So now we've seen that two measures of player consistency (batting average and on base percentage) have negative coefficient estimates. This is crazy! Given that all of the other variables are fixed, players who have higher batting averages and higher on base percentages are earning less money. But, BABIP and SlugPct have relatively large positive coefficient estimates.  \\
+
+Just to explore, I removed BABIP and Slugpct from the model, and my coefficient estimate for batting average became positive (see below). The coefficient estimate for OBP didn't change much. The overall lesson I'm taking from this is that I would not trust this model to explain relationships. Even though mathematically we've removed the multicollinearity in the X matrix, a model with this many predictors is too difficult too understand. Practically, it doesn't make sense to describe the relationship between salary and OBP when G, HR, R, X2B, RBI, and 12 other variables are fixed. I think that a much better way to approach model building is to first define the relationship that you want to describe and then build a model from there while thinking about which terms should be included in the model from a practical standpoint.  }
+
+\includegraphics[scale=0.5]{without.png}
+
+
+\end{enumerate}
+
+{\large \bf Code Appendix}
+
+<<readdat, eval=FALSE>>=
+@
+
+<<exploreplots, eval=FALSE>>=
+@
+
+<<salary, eval=FALSE>>=
+@
+
+<<colin0, eval=FALSE>>=
+@
+
+<<colin, eval=FALSE>>=
+@
+
+<<pairs2, eval=FALSE>>=
+@
+
+<<center0, eval=FALSE>>=
+@
+
+<<center, eval=FALSE>>=
+@
+
+<<step, eval=FALSE>>=
+@
+
+<<center01, eval=FALSE>>=
+@
+
+<<vifs, eval=FALSE>>=
+@
+
+\begin{verbatim}
+DATA baseball;
+  INFILE "/folders/myfolders/BaseballStats2000.csv" firstobs=2 delimiter =',';
+  INPUT player $ year team $ G AB R H X2B X3B HR RBI SB CS BB SO IBB HBP SH 
+      SF GIDP BA SlugPct OBP BABIP salary;
+  ;
+RUN;
+
+DATA baseball;
+  SET baseball;
+	log = log(salary);
+	;
+RUN;
+
+PROC REG DATA=baseball;
+MODEL log = year G AB R H X2B X3B HR RBI SB CS BB SO 
+                    IBB HBP SH SF GIDP BA SlugPct OBP BABIP / COLLIN;
+RUN;
+
+*/Center and scale;
+
+PROC REG DATA=baseball;
+MODEL log = year G AB R H X2B X3B HR RBI SB CS BB SO 
+               IBB HBP SH SF GIDP BA SlugPct OBP BABIP / COLLINoint;
+RUN;
+
+PROC REG DATA=baseball PLOTS=criteria;
+MODEL log = year G AB R H X2B X3B HR RBI SB CS BB SO 
+               IBB HBP SH SF GIDP BA SlugPct OBP BABIP / selection=forward ALL;
+RUN;
+
+*check for multicollinearity in model SAS chose with forward selection;
+
+PROC REG DATA=baseball;
+	MODEL log = HR SlugPct BB G AB OBP IBB year SO X3B SH BABIP CS GIDP
+	HBP X2B RBI BA / COLLINoint;
+RUN;
+
+*Look at coefficient estimates for both models;
+
+PROC GLM data=baseball;
+	MODEL log = year G AB R H X2B X3B HR RBI SB CS BB SO 
+               IBB HBP SH SF GIDP BA SlugPct OBP BABIP / NOINT SOLUTION;
+RUN;
+
+PROC GLM data=baseball;
+	MODEL log = year G AB R X2B X3B HR RBI SB CS BB SO 
+               IBB HBP SH SF GIDP BA SlugPct OBP BABIP / NOINT SOLUTION;
+RUN;
+
+*Now choose favorite model and fit with a random team effect;
+
+PROC MIXED data=baseball method=ml;
+	CLASS team;
+	MODEL log = HR SlugPct BB G AB OBP IBB year SO X3B SH BABIP CS GIDP
+	HBP X2B RBI BA / NOINT SOLUTION;
+	RANDOM team / s;
+RUN;
+
+*compare to results when team was not a random effect;
+
+PROC GLM DATA=baseball;
+	MODEL log = HR SlugPct BB G AB OBP IBB year SO X3B SH BABIP CS GIDP
+	HBP X2B RBI BA / NOINT SOLUTION;
+RUN;
+\end{verbatim}
+
+\end{document}

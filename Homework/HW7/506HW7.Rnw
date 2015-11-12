@@ -1,0 +1,523 @@
+\documentclass{article}
+\usepackage{float}
+\usepackage{amsmath}
+
+  %% LaTeX margin settings:
+\setlength{\textwidth}{6.5in}
+\setlength{\textheight}{9in}
+\setlength{\oddsidemargin}{0in}
+\setlength{\evensidemargin}{0in}
+\setlength{\topmargin}{-1.5cm}
+\setlength{\maxwidth}{6.5in}
+
+\newcommand{\R}{{\sf R}}
+\newcommand{\bfbeta}{\mbox{\boldmath $\beta$}}
+\newcommand{\bfep}{\mbox{\boldmath $\epsilon$}}
+\newcommand{\bfD}{\mbox{\boldmath $D$}}
+\newcommand{\bfL}{\mbox{\boldmath $L$}}
+\newcommand{\bfR}{\mbox{\boldmath $R$}}
+\newcommand{\bfmu}{\mbox{\boldmath $\mu$}}
+\newcommand{\bfV}{\mbox{\boldmath $V$}}
+\newcommand{\bfX}{\mbox{\boldmath $X$}}
+
+\newcommand{\bfy}{\mbox{\boldmath $y$}}
+\newcommand{\bfz}{\mbox{\boldmath $z$}}
+\newcommand{\bfSig}{\mbox{\boldmath $\Sigma$}}
+\newcommand{\tr}{^{\sf T}}
+\newcommand{\inv}{^{-1}}
+
+
+\begin{document}
+
+<<setup, include=FALSE, cache=FALSE>>=
+opts_chunk$set(fig.width=5, fig.height=4, out.width='\\linewidth', dev='pdf', concordance=TRUE, size='footnotesize')
+options(replace.assign=TRUE,width=72, digits = 3, 
+        show.signif.stars = FALSE)
+
+require(xtable)
+display.xtable <- function(lmobj, ...){
+  sumry <- summary(lmobj)
+  captn <- paste("n = ", lmobj$df.residual + lmobj$rank,
+                      " rank = ", lmobj$rank)
+  if(class(lmobj)[1] == "lm")
+      captn <- paste(captn, " resid sd = ", round(sumry$sigma, options()$digits),
+                      " R-Squared = ", round( sumry$r.squared, options()$digits))
+  else if(class(lmobj)[1] == "glm")
+      captn <- paste(captn, " Resid Deviance = ", round(sumry$deviance, options()$digits))
+  xtable(sumry$coef[,1:3, drop=FALSE], caption = captn, ...)
+}
+@
+%% replace = with <-
+%% R output can go to 112 characters per line before wrapping
+%% print 3 significant digits
+
+\large
+\begin{center}
+{\Large \bf  Stat 506 Assignment 7 \vspace{.2in}} \\ 
+{\it Leslie Gains-Germain}
+\date{\today}
+\end{center}
+
+\begin{enumerate}
+
+\item Revisit the Oxboys data from HW6.
+
+\begin{enumerate}
+
+\item Refit the random intercept and slope model using a correlation between intercept and slope as in Gelman’s code on p 376.
+
+
+<<oxboys, echo=FALSE, message=FALSE, fig.width=10>>=
+require(ggplot2)
+require(nlme)
+data(Oxboys)
+ggplot(Oxboys, aes(age, height))+geom_point()+facet_wrap(~Subject)
+@
+
+<<jagsrandomslope, echo=FALSE, eval=FALSE>>=
+#Random intercept and slope model with no correlation a priori
+
+##Write JAGS model
+
+##write model file first
+cat("
+model
+{
+for(i in 1:N) {
+y[i] ~dnorm(y.hat[i], tau.y)
+y.hat[i] <- beta.0+beta.1*x[i]+b0[subject[i]]+b1[subject[i]]*x[i]
+}
+for(j in 1:J) {
+b0[j] ~ dnorm(0, tau.b0)
+b1[j] ~ dnorm(0, tau.b1)
+}
+beta.0~dnorm(0, .0001)
+beta.1~dnorm(0, .0001)
+tau.y <-pow(sigma.y, -2)
+sigma.y~dunif(0, 1000)
+tau.b0 <- pow(sigma.b0, -2)
+sigma.b0~dunif(0,1000)
+tau.b1 <- pow(sigma.b1, -2)
+sigma.b1~dunif(0,1000)
+}",
+file="jags-slope.jags")
+@
+
+<<jagscor, echo=TRUE, cache=TRUE>>=
+#Random slope and intercept with correlation a priori
+
+setwd("~/Documents/Stat506/Homework/HW7")
+
+cat("
+model {
+  for(i in 1:n){
+    y[i] ~ dnorm (y.hat[i], tau.y)
+    y.hat[i] <- B[subject[i], 1] + B[subject[i],2] * x[i]
+  }
+  tau.y <- pow(sigma.y, -2)
+  sigma.y ~ dunif (0, 100)
+  for(j in 1:J){
+    B[j, 1:2] ~ dmnorm(B.hat[j, ], Tau.B[,])
+    B.hat[j,1] <- mu.a
+    B.hat[j,2] <- mu.b
+  }
+  mu.a ~ dnorm (0, .0001)
+  mu.b ~ dnorm (0, .0001)
+  Tau.B[1:2,1:2] <- inverse(Sigma.B[,])
+  Sigma.B[1,1] <- pow(sigma.a, 2)
+  sigma.a ~ dunif (0, 100)
+  Sigma.B[2,2] <- pow(sigma.b, 2)
+  sigma.b ~ dunif (0, 100)
+  Sigma.B[1,2] <- rho*sigma.a*sigma.b
+  Sigma.B[2,1] <- Sigma.B[1,2]
+  rho ~ dunif (-1, 1)}", file="CorrSlopInt.jags")
+@
+
+<<jagscallrandomslope, echo=FALSE, message=FALSE, results='hide'>>=
+##jags call
+library(R2jags)
+set.seed(52)
+
+oxboys.data <-with(Oxboys, list(n=nrow(Oxboys), J=length(unique(Subject)), 
+                                   subject=as.integer(Subject), 
+                                y= height, x=age))
+
+oxboys.init2 <- function (){
+  list (mu.a=rnorm(1), mu.b=rnorm(1), rho = runif(1, -1, 1),
+        sigma.y=runif(1), sigma.a=runif(1) )
+}
+oxboys.param2 <- c ("B", "mu.a", "mu.b", "sigma.y", "sigma.a", "sigma.b", "rho")
+
+withCorM2 <-  jags(data = oxboys.data, inits = oxboys.init2, oxboys.param2,  
+                   model.file = "CorrSlopInt.jags", n.chains=4, n.iter=5000)
+@
+
+\item  Give appropriate plots and summaries.
+
+<<plots, echo=FALSE, fig.width=14>>=
+traceplot(withCorM2, mfrow=c(1,3), varname=c("mu.a", "mu.b", "rho"))
+#traceplot(withCorM2, mfrow=c(1,2), varname=c("B"))
+traceplot(withCorM2, mfrow=c(1,4), varname=c("deviance","sigma.a", "sigma.b", "sigma.y"))
+@
+
+\includegraphics[scale=0.35]{fourint.png}
+\includegraphics[scale=0.35]{fourslope.png}
+
+
+<<summary, echo=FALSE, results='asis'>>=
+require(xtable)
+print(xtable(withCorM2$BUGSoutput$summary[c(1,10,27,36,53:59),c(1:3,7:9)]), table.placement = getOption("xtable.table.placement", "H"))
+@
+
+{\it The parameters all converged nicely, with all $\hat{R}$'s less than $1.005$ and all effective sample sizes greater than $1300$. The overall y-intercept, averaged over all boys, is estimated to be $149.35$ (1.675), and the overall slope is estimated at $6.520$ ($1.675$). The estimated random intercepts and slopes for boys $1$ and $10$ are shown in the table (the other boys are not displayed). The estimates of the slopes and variance parameters are similar to the estimates before correlation was added to the model a priori. The estimate of $\rho$ is $0.602$ ($0.131$), which is fairly close to the lmer estimate of $0.641$.}\\
+
+{\it Traceplots are shown for the fixed effects, $\rho$, variance parameters, and the deviance. Traceplots are also shown for the random slopes and intercepts for boys $1$ and $2$. I looked at the traceplots not shown (all the other boys), and all of the traceplots look good.}
+
+\item Do the same using the Inverse Wishart distribution as in his code on p 376–7. Deviances should match, right?
+
+<<invwishart, echo=TRUE>>=
+cat("
+model {
+  for(i in 1:n){
+    y[i] ~ dnorm (y.hat[i], tau.y)
+    y.hat[i] <- B[subject[i], 1] + B[subject[i], 2] * x[i]
+  }
+  tau.y <- pow(sigma.y, -2)
+  sigma.y ~ dunif (0, 100)
+  
+  for(j in 1:J){
+    B[j, 1:2] ~ dmnorm(mu, Tau.B[,])
+  }
+  mu[1] ~ dnorm (0, .0001)
+  mu[2] ~ dnorm (0, .0001)
+  Tau.B[1:2,1:2] ~ dwish(W[,], 3)
+  Sigma.B[1:2,1:2] <- inverse(Tau.B[,])
+  sigma.a <- sqrt(Sigma.B[1,1])
+  sigma.b <- sqrt(Sigma.B[2,2])
+  rho <- Sigma.B[1,2]/sqrt(Sigma.B[1,1]*Sigma.B[2,2])}",
+file="wishart.jags")
+@
+
+<<wishcall, echo=FALSE, results='hide'>>=
+#oxboys.data <- list ("n"=n, "J"=J, "x"=x, "y"=y, "county"=county, "W"= diag(2))
+
+oxboys.data.wish <-with(Oxboys, list(n=nrow(Oxboys), J=length(unique(Subject)), 
+                                   subject=as.integer(Subject), 
+                                y= height, x=age, W=diag(2)))
+
+oxboys.param3 <- c ("B", "mu", "sigma.y", "sigma.a", "sigma.b", "rho")
+
+wishart <-  jags(data = oxboys.data.wish,  parameters.to.save=oxboys.param3,  
+                   model.file = "wishart.jags", n.chains=4, n.iter=5000)
+@
+
+<<plotswish, echo=FALSE, fig.width=14, cache=TRUE>>=
+traceplot(wishart, mfrow=c(1,3), varname=c("mu", "rho"))
+#traceplot(withCorM2, mfrow=c(1,2), varname=c("B"))
+traceplot(wishart, mfrow=c(1,4), varname=c("deviance",  "sigma.a", "sigma.b", "sigma.y"))
+@
+
+\includegraphics[scale=0.35]{twoint.png}
+\includegraphics[scale=0.35]{twoslope.png}
+
+
+<<summarywish, echo=FALSE, results='asis'>>=
+require(xtable)
+print(xtable(wishart$BUGSoutput$summary[c(1,10,27,36,53:59),c(1:3,7:9)]), table.placement = getOption("xtable.table.placement", "H"))
+@
+
+{\it Again, the parameters converged nicely. The estimates and standard errors are all very similar to the estimates from the previous model. I checked all the traceplots, and although the traceplots for the variance parameters showed a few spikes, (see the plot for $\sigma_b$), I'm not worried because there is good overlap otherwise.}
+
+\end{enumerate}
+
+
+
+\item In the Chapter 15 notes we fit the following model to the owls data.
+
+<<owls, echo=FALSE, include=FALSE>>=
+owls <- read.table("http://www.math.montana.edu/~jimrc/classes/stat506/data/Owls.txt", head=T)
+owls$cTime <- owls$ArrvTime-24
+owls$foodsat <- with(owls, ifelse(FoodTrt=="Satiated",1,0))
+owls$sexmale <- with(owls, ifelse(SexParent=="Male",1,0))
+
+require(lme4)
+require(splines)
+owl.fit3 <- glmer(Ncalls ~ offset(log(BroodSize)) + FoodTrt*SexParent +
+      SexParent*bs(cTime, df=5) +(1 + cTime|Nest), data=owls, 
+      family=poisson)
+@
+
+<<jags, echo=FALSE, eval=FALSE>>=
+#Xfem <- with(subset(owls, SexParent=="Female"), model.matrix(~bs(cTime, 5)+foodep))
+#Xmal <- with(subset(owls, SexParent=="Male"), model.matrix(~bs(cTime, 5)+foodep))
+
+cat("
+model {
+  Ncalls ~ dpois(lambda[i]) #Does all n rows at once
+  log(lambda[i]) <- offset+inprod(b.0[],X.0[i,])+B.ran[nest[i],1]+B.ran[nest[i],2]*cTime[i]
+
+for(k in 1:K.0){
+  b.0[k]~dnorm(0,0.0001)
+}
+
+for(j in 1:J){
+  B.ran[j, 1:2] ~ dmnorm(mu, Tau.B[,])
+}
+  mu[1] ~ dnorm (0, .0001)
+  mu[2] ~ dnorm (0, .0001)
+  Tau.B[1:2,1:2] ~ dwish(W[,], 3)
+  Sigma.B[1:2,1:2] <- inverse(Tau.B[,])
+  sigma.a <- sqrt(Sigma.B[1,1])
+  sigma.b <- sqrt(Sigma.B[2,2])
+  rho <- Sigma.B[1,2]/sqrt(Sigma.B[1,1]*Sigma.B[2,2])
+}", file="poisson.jags")
+
+
+    #beta0+beta1*foodep+beta2*sexfem+beta3*foodep*sexfem+
+    #model.matrix(~bs(cTime, df=5))%*%beta4+
+    #sexfem*model.matrix(~bs(cTime, df=5))%*%beta5
+@
+
+<<poissoncall, echo=FALSE, eval=FALSE>>=
+#oxboys.data <- list ("n"=n, "J"=J, "x"=x, "y"=y, "county"=county, "W"= diag(2))
+
+offset <- owls$BroodSize
+
+X.0 <- with(owls, model.matrix(~sexfem*foodep+sexfem*bs(cTime,5)))
+
+K.0 <- ncol(X.0)
+
+owls.data <-with(owls, 
+                 list(J=length(unique(Nest)), nest=as.integer(Nest), W=diag(2),
+                            X.0=model.matrix(~sexfem*foodep+sexfem*bs(cTime,5)),
+                      K.0=14, offset=log(BroodSize)))
+
+owls.param <- c ("B.ran", "b.0", "mu", "sigma.a", "sigma.b", "rho")
+
+owls.model <-  jags(data = owls.data,  parameters.to.save=owls.param,  
+                   model.file = "poisson.jags", n.chains=4, n.iter=5000)
+@
+
+<<simpletest, echo=FALSE, eval=FALSE>>=
+cat("
+model
+{
+for(i in 1:n){
+  Ncalls[i] ~ dpois(lambda[i]) #Does all n rows at once
+  log(lambda[i]) <- offset[i]+inprod(b.0[], X.0[i,])
+}
+for(k in 1:K.0){
+  b.0[k]~dnorm(0,0.0001)
+}
+}", file="poisson2.jags")
+
+owls.data2 <-with(owls, 
+                 list(n=nrow(owls),
+                      X.0=model.matrix(~sexfem*foodep+sexfem*bs(cTime,5)),
+                      K.0=14, offset=log(BroodSize)))
+
+owls.param2 <- c("b.0")
+
+owls.model2 <-  jags(data = owls.data2, parameters.to.save=owls.param2,
+                   model.file = "poisson2.jags", n.chains=4, n.iter=5000)
+@
+
+\begin{enumerate}
+
+\item Translate the model to jags code.
+
+<<complexer, echo=TRUE>>=
+cat("
+model
+{
+for(i in 1:n){
+  y[i] ~ dpois(lambda[i])
+  log(lambda[i]) <- offset[i]+inprod(b.0[], X.0[i,])+a[nest[i]]+b[nest[i]]*x[i]
+}
+for(k in 1:K){
+  b.0[k]~dnorm(0,0.0001)
+}
+for(j in 1:J) {
+a[j] ~ dnorm(0, tau.a)
+b[j] ~ dnorm(0, tau.b)
+}
+tau.a <- pow(sigma.a, -2)
+sigma.a~dunif(0,1000)
+tau.b <- pow(sigma.b, -2)
+sigma.b~dunif(0,1000)
+}", file="poisson4.jags")
+@
+
+<<callowls, echo=FALSE, cache=TRUE, message=FALSE, results='hide'>>=
+library(R2jags)
+set.seed(52)
+
+owls.data4 <-with(owls, 
+                 list(n=nrow(owls), J=length(unique(Nest)), K=14, 
+                      nest=as.integer(Nest), y=Ncalls, x=cTime, 
+                      offset=log(BroodSize),
+                      X.0=model.matrix(~foodsat*sexmale+sexmale*bs(cTime,5))))
+
+owls.param4 <- c("b.0","a","b", "sigma.a", "sigma.b")
+
+owls.model4 <-  jags(data = owls.data4, parameters.to.save=owls.param4,
+                   model.file = "poisson4.jags", n.chains=4, n.iter=5000)
+@
+
+
+\item Run the model to convergence and compare to the glmer output.
+
+<<complexest, echo=FALSE, eval=FALSE>>=
+library(R2jags)
+set.seed(52)
+
+cat("
+model
+{
+for(i in 1:n){
+  y[i] ~ dpois(lambda[i])
+  log(lambda[i]) <- offset[i]+mu+a[nest[i]]+b[nest[i]]*x[i]
+}
+mu ~ dnorm(0, 0.0001)
+mu.adj <- mu+mean(a[])+mean(b[])
+for(j in 1:J) {
+a[j] ~ dnorm(0, tau.a)
+b[j] ~ dnorm(0, tau.b)
+}
+tau.a <- pow(sigma.a, -2)
+sigma.a~dunif(0,1000)
+tau.b <- pow(sigma.b, -2)
+sigma.b~dunif(0,1000)
+}", file="poisson3.jags")
+
+owls.data3 <-with(owls, 
+                 list(n=nrow(owls), J=length(unique(Nest)), 
+                      nest=as.integer(Nest), y=Ncalls, x=cTime, 
+                      offset=log(BroodSize)))
+
+owls.param3 <- c("a","b")
+
+owls.model3 <-  jags(data = owls.data3, parameters.to.save=owls.param3,
+                   model.file = "poisson3.jags", n.chains=4, n.iter=5000)
+@
+
+{\it I didn't have convergence issues, so I didn't include an \verb+a.adj+ term or a \verb+b.adj+ term because it wasn't necessary. All of the $\hat{R}$'s were less than $1.01$ and the effective sample sizes were all greater than $230$. The summary below shows the \verb+favstats+ for the $\hat{R}$ values and the effective sample sizes.}
+
+<<sumstats, echo=FALSE, message=FALSE, results='asis'>>=
+require(mosaic)
+xtable(favstats(owls.model4$BUGSoutput$summary[,8]))
+xtable(favstats(owls.model4$BUGSoutput$summary[,9]))
+@
+
+
+{\it In the summary below, I show the estimated variance parameters for the JAGs model and then the lmer model. The variances of the random intercept and the random slope were estimated to be slightly larger in the JAGs model.}
+
+<<owlssummary, echo=FALSE, results='asis'>>=
+require(xtable)
+print(xtable(owls.model4$BUGSoutput$summary[c(69:71), 1:2]), table.placement = getOption("xtable.table.placement", "H"))
+print(xtable(data.frame(VarCorr(owl.fit3))), table.placement = getOption("xtable.table.placement", "H"))
+@
+
+
+{\it The estimated fixed effects are shown in detail in the table below. I created indicator variables, \verb+foodsat+ and \verb+sexmale+ that I used when creating the model matrix. The JAGs estimates are compared to the glmer estimates.\\
+
+In the JAGs model, a satiated owl with a female parent is estimated to give $0.57$ fewer calls than a food deprived owl with a female parent (se=0.06). In the lmer model, a satiated owl with a female parent is estimated to give $0.60$ fewer calls than a food deprived owl with a female parent (se=0.06). \\
+
+In the JAGs model, a satiated owl with a female parent is estimated to give $0.53$ fewer calls than a satiated owl with a male parent (se=0.32). In the lmer model, a satiated owl with a female parent is estimated to give $0.57$ fewer calls than a satiatedz owl with a male parent (se=0.32).}
+
+
+<<glmercompare, echo=FALSE, results='asis', message=FALSE>>=
+jags.est <- owls.model4$BUGSoutput$summary[c(55:68), 1:2]
+names <- c("(Intercept)", "foodsat", "sexmale", "bs1", "bs2", "bs3", "bs4", "bs5", "sexmale:foodsat", "sexmale:bs1", "sexmale:bs2", "sexmale:bs3", "sexmale:bs4", "sexmale:bs5")
+glmer.coef <- as.numeric(fixef(owl.fit3))
+require(arm)
+glmer.se <- as.numeric(se.fixef(owl.fit3))
+table <- cbind.data.frame(names, jags.est, glmer.coef, glmer.se)
+names(table) <- c("name", "est-JAGS", "se-JAGS", "est-glmer", "se-glmer")
+xtable(table)
+@
+
+\newpage
+
+{\it Next I compare the random slopes and intercepts in the JAGs model to the lmer model. Only the first five nests are shown. The estimates are fairly similar.}
+
+<<lmer2, echo=FALSE, results='asis'>>=
+ran.efs <- cbind.data.frame(ranef(owl.fit3)$Nest, owls.model4$BUGSoutput$summary[c(1:27), 1:2], owls.model4$BUGSoutput$summary[c(28:54), 1:2])[1:5,]
+names(ran.efs) <- c("int-glmer", "slope-glmer", "int-jags", "sd(int)-jags", "slope-jags", "sd(slope)-jags")
+print(xtable(ran.efs), table.placement = getOption("xtable.table.placement", "H"))
+@
+
+{\it Lastly I looked at the traceplots. I looked at all the traceplots for the random effects and fixed effects. Only some are shown, but they all looked good. The traceplots of the deviance and the variance parameters are also shown.}
+
+<<traceowl, echo=FALSE, eval=FALSE>>=
+traceplot(as.mcmc(owls.model4))
+@
+
+\includegraphics[scale=0.5]{varplots.png}
+
+\includegraphics[scale=0.35]{intplots.png}
+\includegraphics[scale=0.35]{slopeplots.png}
+
+\includegraphics[scale=0.4]{fixplots.png}
+
+
+
+
+\end{enumerate}
+
+\end{enumerate}
+
+{\Large Rcode Appendix}
+
+<<oxboys, eval=FALSE>>=
+@
+
+<<jagscor, eval=FALSE>>=
+@
+
+<<jagscallrandomslope, eval=FALSE>>=
+@
+
+<<plots, eval=FALSE>>=
+@
+
+<<summary, eval=FALSE>>=
+@
+
+<<invwishart, eval=FALSE>>=
+@
+
+<<wishcall, eval=FALSE>>=
+@
+
+<<plotswish, eval=FALSE>>=
+@
+
+<<summarywish, eval=FALSE>>=
+@
+
+<<owls, eval=FALSE>>=
+@
+
+<<complexer, eval=FALSE>>=
+@
+
+<<callowls, eval=FALSE>>=
+@
+
+<<sumstats, eval=FALSE>>=
+@
+
+<<owlssummary, eval=FALSE>>=
+@
+
+<<glmercompare, eval=FALSE>>=
+@
+
+<<lmer2, eval=FALSE>>=
+@
+
+<<traceowl, eval=FALSE>>=
+@
+
+\end{document}

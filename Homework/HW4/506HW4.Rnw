@@ -1,0 +1,295 @@
+\documentclass{article}
+
+  %% LaTeX margin settings:
+\setlength{\textwidth}{6.5in}
+\setlength{\textheight}{9in}
+\setlength{\oddsidemargin}{0in}
+\setlength{\evensidemargin}{0in}
+\setlength{\topmargin}{-1.5cm}
+\setlength{\maxwidth}{6.5in}
+
+\newcommand{\R}{{\sf R}}
+\newcommand{\bfbeta}{\mbox{\boldmath $\beta$}}
+\newcommand{\bfep}{\mbox{\boldmath $\epsilon$}}
+\newcommand{\bfD}{\mbox{\boldmath $D$}}
+\newcommand{\bfL}{\mbox{\boldmath $L$}}
+\newcommand{\bfR}{\mbox{\boldmath $R$}}
+\newcommand{\bfmu}{\mbox{\boldmath $\mu$}}
+\newcommand{\bfV}{\mbox{\boldmath $V$}}
+\newcommand{\bfX}{\mbox{\boldmath $X$}}
+
+\newcommand{\bfy}{\mbox{\boldmath $y$}}
+\newcommand{\bfz}{\mbox{\boldmath $z$}}
+\newcommand{\bfSig}{\mbox{\boldmath $\Sigma$}}
+\newcommand{\tr}{^{\sf T}}
+\newcommand{\inv}{^{-1}}
+
+
+\begin{document}
+
+<<setup, include=FALSE, cache=FALSE>>=
+opts_chunk$set(fig.width=5, fig.height=4, out.width='\\linewidth', dev='pdf', concordance=TRUE, size='footnotesize')
+options(replace.assign=TRUE,width=72, digits = 3, 
+        show.signif.stars = FALSE)
+@
+%% replace = with <-
+%% R output can go to 112 characters per line before wrapping
+%% print 3 significant digits
+
+
+\large
+\begin{center}
+{\Large \bf  Stat 506 Assignment 4 \vspace{.2in}} \\ 
+{\it Leslie Gains-Germain}
+\end{center}
+February $13$, $2015$
+
+\begin{enumerate}
+
+\item I’m sure you know that salaries often exhibit a skewed distribution.
+
+<<dat, echo=FALSE>>=
+nfl <- read.csv("~/Documents/Stat506/Homework/HW4/nfl.csv")
+nfl <- na.omit(nfl)
+names(nfl) <- c("team", "x", "name" , "first", "last", "pos" ,"ht", "wt", "age", "bday", "exp", "college", "salary", "city","state","race","hs","hscity", "hsstate", "probowl","champ","xofteams","heisman")
+
+dollarToNumber <- function(vector) {
+  vector <- as.character(vector)
+  vector <- gsub("(\\$|,)","", vector)
+  result <- as.numeric(vector)
+  return(result)
+}
+
+nfl$salary <- dollarToNumber(nfl$salary)
+nfl <- subset(nfl, salary !=0)
+@
+
+\begin{enumerate}
+
+\item Investigate these data to see if a transformation is needed. If so, do it throughout this assignment. (Explain.) \\
+
+{\it The salaries look very skewed. I tried a log base $10$ transformation and the histogram of log salaries looks better. The distribution of log salaries is short tailed and closer to being symmetric than before the transformation. I chose to use a log base $10$ transformation because it makes more sense to think of changes in salaries as factors of ten (rather than factors of $e$) after backtransforming.}
+
+<<investigate, echo=FALSE, fig.width=10>>=
+par(mfrow=c(1,4))
+hist(nfl$salary)
+qqnorm(nfl$salary)
+qqline(nfl$salary)
+nfl$log <- log10(nfl$salary)
+hist(nfl$log)
+qqnorm(nfl$log)
+qqline(nfl$log)
+@
+
+\item Decide which variables you will consider as predictors. Format them in a way that makes sense. (Which are factors?) Provide initial plots to see how they might relate to salary.
+
+{\it I chose to include almost all of the variables as potential predictors. The only ones I didn't include were birth city, state, jersey number, high school, and high school city. I do not think the log salaries would depend greatly on these variables, and they would be factors with hundreds of levels (thus lots of computing power would be required to include them in the model).\\
+
+In the plot below we see that a player's log salary generally decreases as the number of teams they have been on increases. This seems to be true across different numbers of probowl appearances.}
+
+<<plot1, echo=FALSE, message=FALSE, out.width="0.8\\linewidth", fig.width=10>>=
+require(lattice)
+nfl$pos <- factor(nfl$pos)
+nfl$probowl <- factor(nfl$probowl)
+xyplot(log~xofteams|probowl, data=nfl)
+@
+
+
+{\it There does appear to be an interaction between probowl and experience. For those who have never won a probowl, more experienced people get higher salaries. For those people who  have been in $1$, $2$, or $3$ probowls, there does not seem to be a clear relationship between log salary and experience. For those players who have been in four or more probowls, log salary is highest for players with the fewest years of experience. These must be the superstars! We can also see from this plot that people who have won more probowls have more years of experience, which make sense. The relationship between log salary and experience appears to be about the same across position, with the exception of the 'LS' position.}
+
+<<plot2, out.width="0.8\\linewidth", fig.width=10, echo=FALSE>>=
+xyplot(log~exp|probowl, data=nfl, type=c("p"))
+@
+
+{\it When we look at the relationship between log salary and experience across position, in every position we see a strong positive relationship between log salary and experience.}
+
+<<plot3, out.width="0.8\\linewidth", fig.width=10, echo=FALSE>>=
+xyplot(log~exp|pos, data=nfl, type=c("p","r"))
+@
+
+{\it In this plot we can see that the players who have been champions more than once have only played on one or two teams. } \\
+
+<<plot4, out.width="0.8\\linewidth", fig.width=10, echo=FALSE>>=
+xyplot(salary~xofteams|champ, data=nfl, type=c("p"))
+@
+
+{\it In the following plot we see that players who have been in more probowls generally have higher log salaries.} \\
+
+<<probowl, echo=FALSE, out.width="0.8\\linewidth", fig.width=10>>=
+#Justification for probowl as numeric
+xyplot(log~probowl|pos, data=nfl, type=c("p","r"))
+@
+
+{\it This plot shows that only seven people in the dataset have won the heisman, and five of them are quarterbacks. These seven have middle to high log salaries.}
+
+<<plothesiman, echo=FALSE, out.width="0.8\\linewidth", fig.width=10>>=
+
+xyplot(log~heisman|pos, data=nfl)
+@
+
+
+
+{\it I didn't want to include college as a factor because there are $269$ different colleges in the dataset. To get around this issue, I made an indicator variable called 'ivy' that is coded as $1$ if they went to a school that has a football program that is in the top $25$. The following plot shows that a player's log salary does not depend much on whether or not they went to a top $25$ rated college.}\\
+
+
+
+
+<<college, echo=FALSE, out.width="\\linewidth", fig.width=10, message=FALSE>>=
+require(dplyr)
+nfl <- nfl %>%
+  mutate(ivy = ifelse(college %in% c("Boise State", "Boise St", "Oregon", "Mississippi State", "Utah", "Florida State", "Virginia Tech", "Baylor", "Minnesota", "Georgia Tech", "Georgia", "Arizona", "Auburn", "Arizona State", "Clemson", "Kansas State", "Louisville", "LSU", "Missouri", "Michigan State", "USC", "Wisconsin", "UCLA", "TCU", "Texas Christian"), 1,0)) 
+nfl$ivy <- as.factor(nfl$ivy)
+require(ggplot2)
+ggplot(nfl, aes(x=ivy, y=salary))+geom_point()+facet_wrap(~exp)
+@
+
+\end{enumerate}
+
+\item Demonstrate how the step function can be used in R to do forward, backward, or ‘stepwise’ variable selection. Start with a full model to use “backward” and for one “both directions” fit. Start with just one variable to use “forward” and another “both” fit. Do the four results agree? What is the best AICc fit you’ve found? \\
+
+{\it In R, I used the \verb+step()+ function to choose a model, with the AICC criterion. The backward, forward, and stepwise selection procedures all chose a model with experience, probowl, number of teams, position, age, weight, height, heisman, probowl*number of teams, and experience*age as predictors. The AICC for this model is $-4122.26$. In the end, I chose this model but I eliminated the probowl*number of teams interaction. I did not include this interaction because there is not enough information in the dataset to estimate all probowl*number of teams interaction. When this interaction is removed, the AICC only increases by about 6 to $-4116.147$. I fit this linear model and the table of coefficients is shown below.  }
+
+\newpage
+
+<<step, echo=FALSE, cache=TRUE, include=FALSE>>=
+nfl.sub <- nfl %>%
+  select(pos, xofteams, probowl, ivy, champ, exp, log, team, ht, wt, age, race, hsstate, heisman)
+lm1 <- lm(log ~.+pos*ht+pos*wt+ht*wt+age*exp+exp*champ+wt*probowl+team*exp+race*wt+xofteams*probowl, data=nfl.sub)
+step.back <- step(lm1, direction="backward")
+step.both <- step(lm1, direction="both")
+
+lm0 <- lm(log~exp, data=nfl.sub)
+step.for <- step(lm0, direction="forward", scope=list(upper=formula(lm1),lower=~1))
+step.for.both <- step(lm0, direction="both", scope=list(upper=formula(lm1),lower=~1))
+@
+
+
+
+<<randomint, echo=FALSE, results='asis', message=FALSE>>=
+require(nlme)
+require(xtable)
+fit.test <- lm(log~pos+xofteams+probowl+exp+ht+wt+age+heisman+exp*age, data=nfl.sub)
+#extractAIC(fit.test)
+xtable(summary(fit.test))
+fit.lme <- lme(log~pos+xofteams+probowl+exp+ht+wt+age+heisman+exp*age, data=nfl.sub, random=~1|team, method="ML")#random intercept for each team
+@
+
+\item Read the data into SAS. Use the PROC GLMSELECT (2006?) to fit a variety of models. Refer to the example on modeling baseball salaries based on performance measures. Use forward, backward and stepwise. For at least one of these invoke “stats = all” and compare the different criterion’s favorite models.
+
+{\it I input the same candidate set into PROC GLMSELECT in SAS. I first used backward model selection (with the default SAS selection criterion, SBC). The model selected had number of teams, probowl, experience, weight, height*weight, and experience*age as predictors. We can see in the plot below that this model had the lowest SBC, but most of the other statistics ($C_p$, $BIC$, $AICC$, and $PRESS$) agreed on the model from step $6$ (see steps below).}
+
+\includegraphics[scale=0.5]{backcriteria.png}
+
+{\it The values of all criteria for the model, chosen by the SBC criteria with backward selection, are shown below.}
+
+\includegraphics[scale=0.5]{sasteps.png}
+
+\includegraphics[scale=0.5]{allvalues.png}
+
+{\it I also used forward selection and stepwise selection. These methods both selected different models. It seems like the main difference between the step procedure in SAS, compared to R, is that the models selected have interactions with effects that are not included as  main effects in the model. I think this is the reason why the model selected by SAS varies a lot with the selection procedure.}
+
+\item Using a favorite model from number 3, fit in PROC MIXED with a random team intercept. Does this explain much more variance? Do effects look stronger as a result?
+
+{\it Below on the left, I show the fixed effects from the model selected by SAS using forward selection. On the right, I show the estimates for the fixed effects when the model is fit with a random intercept for team. We can see that the estimates of the fixed effects are the same, but the standard errors are slightly smaller when a random intercept is allowed for team. As a result the p-values are slightly smaller and the effects do look stronger.}
+
+\includegraphics[scale=0.5]{fixedfirst.png}
+\includegraphics[scale=0.5]{fixedrandom.png}
+
+\item Repeat number $4$ in R using a favorite model from number $2$. Explain how much difference you see between teams.
+
+{\it The intercept varies very little across teams. The estimated $\sigma^2_{team}$ is $1.80321*10^{-5}$, and the estimated random effects for each team are shown below. We can see that the difference in intercept across teams is very small.}
+
+<<sasmodel, echo=FALSE, results='asis'>>=
+require(xtable)
+fit.lme <- lme(log~pos+xofteams+probowl+exp+ht+wt+age+heisman+exp*age, data=nfl.sub, random=~1|team, method="ML")#random intercept for each team
+print(xtable(ranef(fit.lme), digits=c(0,10)))
+@
+
+\end{enumerate}
+
+\newpage
+
+{\large \bf Code Appendix}
+<<dat, eval=FALSE>>=
+@
+
+<<investigate, eval=FALSE>>=
+@
+
+<<plot1, eval=FALSE>>=
+@
+
+<<plot2, eval=FALSE>>=
+@
+
+<<plot3, eval=FALSE>>=
+@
+
+<<plot4, eval=FALSE>>=
+@
+
+<<probowl, eval=FALSE>>=
+@
+
+<<plothesiman, eval=FALSE>>=
+@
+
+<<college, eval=FALSE>>=
+@
+
+<<step, eval=FALSE>>=
+@
+
+<<randomint, eval=FALSE>>=
+@
+
+<<sasmodel, eval=FALSE>>=
+@
+
+\begin{verbatim}
+DATA nfl;
+  INFILE "/folders/myfolders/nfl.csv" firstobs=2 delimiter =',' dsd;
+  INPUT pos $ xofteams probowl ivy $ champ $ exp log team $ ht 
+  	wt age race $ hsstate $ heisman $;
+  ;
+RUN;
+
+PROC PRINT DATA=nfl;
+RUN;
+
+PROC GLMSELECT data=nfl plot=CriterionPanel;
+	CLASS pos probowl ivy champ team race hsstate heisman;
+	MODEL log = pos xofteams probowl ivy champ exp team ht wt age race hsstate 
+  heisman pos*ht pos*wt ht*wt age*exp exp*champ wt*probowl team*exp race*wt 
+  xofteams*probowl / selection=BACKWARD stats=all;
+RUN;
+
+PROC GLMSELECT data=nfl plot=CriterionPanel;
+	CLASS pos probowl ivy champ team race hsstate heisman;
+	MODEL log = pos xofteams probowl ivy champ exp team ht wt age race hsstate 
+  heisman pos*ht pos*wt ht*wt age*exp exp*champ wt*probowl team*exp race*wt 
+  xofteams*probowl / selection=FORWARD stats=all;
+RUN;
+
+PROC GLMSELECT data=nfl plot=CriterionPanel;
+	CLASS pos probowl ivy champ team race hsstate heisman;
+	MODEL log = pos xofteams probowl ivy champ exp team ht wt age race hsstate heisman 
+  pos*ht pos*wt ht*wt age*exp exp*champ wt*probowl team*exp race*wt xofteams*probowl 
+  / selection=stepwise(select=AICC) stats=all;
+RUN;
+
+
+PROC MIXED DATA=nfl method=ml;
+  CLASS pos probowl ivy champ team race hsstate heisman;
+  MODEL log = pos xofteams probowl exp ht wt age heisman exp*age / S;
+  random team / s;
+RUN;
+
+PROC MIXED DATA=nfl method=ml;
+  CLASS pos probowl ivy champ team race hsstate heisman;
+  MODEL log = xofteams probowl exp wt ht*wt exp*age / S;
+  random team / s;
+RUN;
+\end{verbatim}
+
+\end{document}

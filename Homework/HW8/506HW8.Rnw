@@ -1,0 +1,288 @@
+\documentclass{article}
+\usepackage{float}
+\usepackage{amsmath}
+
+  %% LaTeX margin settings:
+\setlength{\textwidth}{6.5in}
+\setlength{\textheight}{9in}
+\setlength{\oddsidemargin}{0in}
+\setlength{\evensidemargin}{0in}
+\setlength{\topmargin}{-1.5cm}
+\setlength{\maxwidth}{6.5in}
+
+\newcommand{\R}{{\sf R}}
+\newcommand{\bfbeta}{\mbox{\boldmath $\beta$}}
+\newcommand{\bfep}{\mbox{\boldmath $\epsilon$}}
+\newcommand{\bfD}{\mbox{\boldmath $D$}}
+\newcommand{\bfL}{\mbox{\boldmath $L$}}
+\newcommand{\bfR}{\mbox{\boldmath $R$}}
+\newcommand{\bfmu}{\mbox{\boldmath $\mu$}}
+\newcommand{\bfV}{\mbox{\boldmath $V$}}
+\newcommand{\bfX}{\mbox{\boldmath $X$}}
+
+\newcommand{\bfy}{\mbox{\boldmath $y$}}
+\newcommand{\bfz}{\mbox{\boldmath $z$}}
+\newcommand{\bfSig}{\mbox{\boldmath $\Sigma$}}
+\newcommand{\tr}{^{\sf T}}
+\newcommand{\inv}{^{-1}}
+
+
+\begin{document}
+
+<<setup, include=FALSE, cache=FALSE>>=
+opts_chunk$set(fig.width=5, fig.height=4, out.width='\\linewidth', dev='pdf', concordance=TRUE, size='footnotesize')
+options(replace.assign=TRUE,width=72, digits = 3, 
+        show.signif.stars = FALSE)
+
+require(xtable)
+display.xtable <- function(lmobj, ...){
+  sumry <- summary(lmobj)
+  captn <- paste("n = ", lmobj$df.residual + lmobj$rank,
+                      " rank = ", lmobj$rank)
+  if(class(lmobj)[1] == "lm")
+      captn <- paste(captn, " resid sd = ", round(sumry$sigma, options()$digits),
+                      " R-Squared = ", round( sumry$r.squared, options()$digits))
+  else if(class(lmobj)[1] == "glm")
+      captn <- paste(captn, " Resid Deviance = ", round(sumry$deviance, options()$digits))
+  xtable(sumry$coef[,1:3, drop=FALSE], caption = captn, ...)
+}
+@
+
+
+<<data, echo=FALSE, message=FALSE>>=
+require(nlme)
+data(MathAchieve)
+math <- MathAchieve
+data(MathAchSchool)
+school <- MathAchSchool
+@
+
+\large
+\begin{center}
+{\Large \bf  Stat 506 Assignment 8 \vspace{.2in}} \\ 
+{\it Leslie Gains-Germain}
+\date{\today}
+\end{center}
+
+\begin{enumerate}
+
+\item Fit the data in R using MathAch as the response, with fixed effects for Minority, Sex, and SES and the strongest of the two-way interactions. Include random effects for School and investigate whether or not there is a random Minority, Sex, and or SES effect between schools.
+
+{\it The strongest two way interaction is between socioeconomic status (SES) and minority. I included a random intercept for school and investigated whether to include a random slope for SES, Sex or Minority. There was weak to moderate evidence of random sex and SES effects (p-values$=0.045$ and $0.08454$ respectively). There was strong evidence of a random minority effect across schools (p-value$<0.0001$), so I chose to include a random slope for minority.}
+
+<<fit, echo=FALSE, message=FALSE, results='asis'>>=
+require(lme4)
+mixed <- lmer(MathAch~Minority+Sex+SES+SES*Minority+(1|School), data=math)
+
+slopeSES <- lmer(MathAch~Minority+Sex+SES+SES*Minority+(1+SES|School), data=math)
+
+slopeSex <- lmer(MathAch~Minority+Sex+SES+SES*Minority+(1+Sex|School), data=math)
+
+
+###strongest slope effect for minority
+slopeMinority <- lmer(MathAch~Minority+Sex+SES+SES*Minority+(1+Minority|School), data=math)
+
+require(xtable)
+xtable(anova(mixed, slopeMinority))
+@
+
+\item Use the model from no. 1 with random intercept and the “strongest” one other random term for each school. Extract the random effects and merge it (by school) with the MathAchSchool dataset. Fit each random effect column in turn to the other variables. HIMINTY indicates whether or not a school is classified as having a high proportion of minority students. The other variables are explained in the help page for the dataset. Explain (briefly at this point) what you find.
+
+{\it There is strong evidence of a linear relationship between the random intercept mong schools and the size of the school (p-value$=0.00024$). There is also strong evidence of a linear relationship between the random intercept and the percentage of students on the academic track (p-value$=0.000243$). The random intercept for a school is the estimated math achievement score for non-minority, male students with SES=0.  \\
+
+There is strong evidence of a linear relationship between the random minority effect among schools and the discrimination climate (p-value$=0.00051$). There is also strong evidence of a linear relationship between the random minority effect among schools and the mean socioeconomic status (p-value$=0.006901$).}
+
+<<merge, echo=FALSE, message=FALSE>>=
+random <- ranef(slopeMinority)$School
+random <- cbind.data.frame(rownames(random), random)
+names(random) <- c("School", "intercept", "minority")
+require(dplyr)
+join <- left_join(school, random)
+@
+
+<<fitschool, echo=FALSE, results='asis'>>=
+require(xtable)
+#fit each random effect to the other variables
+fit.effect <- lm(intercept~Size+Sector+PRACAD+DISCLIM+HIMINTY+MEANSES, data=join)
+#PRACAD percentage of students on academic track
+#DISCLIM numeric vector measuring discrimination climate
+#MEANSES mean SES score(socioeconomic status)
+#HIMINTY indicates whether or not a school is classified as having a high proportion of minority students
+#Size of school and PRACAD
+xtable(summary(fit.effect))
+fit.slope <- lm(minority~Size+Sector+PRACAD+DISCLIM+HIMINTY+MEANSES, data=join)
+#DISCLIM, MEANSES, maybe sectorCatholic
+xtable(summary(fit.slope))
+@
+
+\item Pick a good model from your work above and fit it using jags. Provide enough information to show that it has converged, and compare output to that from the fit above.
+
+
+<<makelargedata, echo=FALSE, message=FALSE>>=
+matrix <- left_join(math, school)
+@
+
+{\it I fit the following model in JAGs. I included fixed effects for sex, minority, socioeconomic status, and a minority by socioeconomic status interaction. I included a random intercept and a random minority effect for school. I then included size and percentage on the academic track (PRACAD) as group level predictors for the random intercept and discrimination climate (DISCLIM) and mean socioeconomic status (MEANSES) as group level predictors for the random slope. }
+
+<<jagsgroup, echo=TRUE, eval=FALSE>>=
+setwd("~/Documents/Stat506/Homework/HW8")
+
+##write model file first
+
+cat("
+model{
+  for(i in 1:n){
+  y[i] ~ dnorm(y.hat[i], tau.y)
+  y.hat[i] <- inprod(b.0[], X.0[i,])+a[school[i]] + b[school[i]]*x[i]
+  }
+tau.y <-pow(sigma.y, -2)
+sigma.y ~ dunif(0, 100)
+
+for(k in 1:K){
+  b.0[k]~dnorm(0,0.0001)
+}
+for(j in 1:J){
+a[j] ~ dnorm(a.hat[j], tau.a)
+a.hat[j] <- g.0+g.1*size[j]+g.2*p[j]
+b[j] ~ dnorm(b.hat[j], tau.b)
+b.hat[j] <- g.b0+g.b1*d[j]+g.b2*ses[j]
+}
+tau.a <- pow(sigma.a, -2)
+sigma.a ~ dunif(0, 100)
+tau.b <- pow(sigma.b, -2)
+sigma.b ~ dunif(0, 100)
+g.0 ~ dnorm(0, 0.0001)
+g.1 ~ dnorm(0, 0.0001)
+g.2 ~ dnorm(0, 0.0001)
+g.b0 ~ dnorm(0, 0.0001)
+g.b1 ~ dnorm(0, 0.0001)
+g.b2 ~ dnorm(0, 0.0001)
+}", file="jagsmath.jags")
+@
+
+<<mathowls, echo=FALSE, cache=TRUE, message=FALSE, results='hide'>>=
+library(R2jags)
+set.seed(52)
+
+matrix$MinorityYes <- with(matrix,ifelse(Minority=="No",0,1))
+matrix$SexFem <- with(matrix,ifelse(Sex=="Male",0,1))
+
+X.0 <- with(matrix, model.matrix(~SES*MinorityYes+SexFem))[,-c(1,3)]
+
+math.data <-with(matrix, 
+                 list(n=nrow(matrix), J=length(unique(School)), K=3, 
+                      school=as.integer(School), y=MathAch, 
+                      x=MinorityYes, 
+                      X.0=X.0, 
+                      size=Size,
+                      p=PRACAD, d=DISCLIM, ses=MEANSES))
+
+math.param <- c("b.0","a","b", "sigma.a", "sigma.b")
+
+math.model <-  jags(data = math.data, parameters.to.save=math.param,
+                   model.file = "jagsmath.jags", n.chains=4, n.iter=5000)
+@ 
+
+{\it First I show traceplots for the fixed effects and variance parameters, as well as a few of the random slopes and intercepts. All of the traceplots look good. Initially it took me a while to figure out how to get it to converge. The trick that worked, in the end, was to take out the intercept and slope in the model matrix of fixed effects. }
+
+<<plots, echo=FALSE, fig.width=14, message=FALSE>>=
+require(R2jags)
+traceplot(math.model, mfrow=c(1,3), varname=c("b.0"))
+#traceplot(withCorM2, mfrow=c(1,2), varname=c("B"))
+traceplot(math.model, mfrow=c(1,3), varname=c("deviance","sigma.a", "sigma.b"))
+@
+
+\includegraphics[scale=0.5]{threeint.png}
+
+\includegraphics[scale=0.5]{threeslope.png}
+
+{\it Below I show the convergence criteria for all fixed effects and variance parameters, as well as the random effects for schools $1$ and $10$. The next table shows a summary of all $\hat{R}$ values and effective sample sizes. All $\hat{R}$'s were below $1.01$, and all effective sample sizes were larger than $510$.}
+
+
+<<summary, echo=FALSE, results='asis', message=FALSE>>=
+require(xtable)
+print(xtable(math.model$BUGSoutput$summary[c(1,10,161,170,321:326),c(1:3,7:9)]), table.placement = getOption("xtable.table.placement", "H"))
+@
+
+
+<<sumstats, echo=FALSE, message=FALSE, results='asis'>>=
+require(mosaic)
+xtable(favstats(math.model$BUGSoutput$summary[,8]))
+xtable(favstats(math.model$BUGSoutput$summary[,9]))
+
+##get overall estimated y intercept
+#mean(math.model$BUGSoutput$summary[1:160,1])
+#Now get overall estimated slope
+#mean(math.model$BUGSoutput$summary[161:320,2])
+
+#Now let's find estimated overall intercept and standard error
+x <- apply(math.model$BUGSoutput$sims.list$a, 1, mean)
+#summary(x)
+#sd(x)
+
+#now  let's find estimated overall slope and standard error
+y <- apply(math.model$BUGSoutput$sims.list$b, 1, mean)
+#summary(y)
+#sd(y)
+#find 95\% credible intervals
+require(ffbase)
+#quantile(y, probs=c(0.025,0.975))
+#quantile(x, probs=c(0.025,0.975))
+@
+
+{\it The overall y-intercept, averaged over all schools, is estimated to be $13.97$ (se=$0.128$), and the overall minority effect is estimated at $-3.10$ ($0.235$) from the JAGs model. The lmer model summary is shown below and is similar. In the JAGs model, the estimates for the SES, SexFem, and SES:Minority effects are $2.35$ ($0.13$), $-1.19$ ($0.16$), and $-1.05$ ($0.22$) respectively. The estimates and standard errors of these fixed effects are very similar in the lmer model. The estimated standard deviation of the random intercepts is $1.55$ in the JAGs model and $1.70$ in the lmer model. The estimated standard deviation of the random slopes is $1.88$ in the JAGs model and $1.63$ in the lmer model. \\
+
+No correlation was built into the JAGs model a priori, but the correlation of the intercept and slope column in the output is $0.256$, compared to the estimated correlation of $0.42$ in the lmer model.}
+
+<<lmersum, echo=FALSE, results='asis'>>=
+xtable(summary(slopeMinority)$coef)
+@
+
+
+\item Provide a complete summary and explain what we’ve learned about math achievement scores. The writeup is worth one-third of the points on this assignment, so spend some time polishing it as a report to a legislative committee interested in factors that affect student math achievement scores.\\
+
+{\it Over all schools, the true mean math achievement score of minority students with a socioeconomic status of $0$ is estimated to be $3.10$ points lower than the score of non-minority students with a socioeconomic status of $0$, after controlling for sex, with a $95\%$ credible interval from $2.64$ to $3.57$ points lower. The school to school variation in the minority effect is estimated to be $1.88^2$, with a $95\%$ credible interval from $1.32^2$ to $2.47^2$. \\
+
+The mean math achievement score for non minority, male students with a socioeconomic status of $0$ is estimated to be $13.97$ averaged over all schools, with a $95\%$ confidence interval from $13.72$ to $14.22$. The school to school variation in the intercept is estimated to be $1.55^2$, with a $95\%$ credible interval from $1.31$ to $1.83$. The correlation between the intercept and the minority effect is estimated to be $0.256$ so that schools with higher starting math achievement scores are estimated to have less negative minority effects. In other words, the minorities aren't as far behind non-minority students at the better schools.  \\
+
+The true mean math achievement score of female students is estimated to be $1.19$ points lower than the score of male students after controlling for minority and socioeconomic status, with a $95\%$ credible interval from $1.50$ to $0.88$ points lower. \\
+
+For a one point increase on the socioeconomic scale, the true mean math achievement score for non-minority students is estimated to increase by $2.35$ points after controlling for sex, with a $95\%$ credible interval from $2.09$ to $2.60$ points. \\
+
+The socioeconomic effect is estimated to be less extreme for minorities. For a one point increase on the socioeconomic scale, the true mean math achievement score for minority students is estimated to increase by $1.30$ points after controlling for sex, with a $95\%$ credible interval from $0.60$ to $1.98$ points. }
+\end{enumerate}
+
+<<data, eval=FALSE>>=
+@
+
+<<fit, eval=FALSE>>=
+@
+
+<<merge, eval=FALSE>>=
+@
+
+<<fitschool, eval=FALSE>>=
+@
+
+<<makelargedata, eval=FALSE>>=
+@
+
+<<jagsgroup, eval=FALSE>>=
+@
+
+<<mathowls, eval=FALSE>>=
+@
+
+<<plots, eval=FALSE>>=
+@
+
+<<summary, eval=FALSE>>=
+@
+
+<<sumstats, eval=FALSE>>=
+@
+
+<<lmersum, eval=FALSE>>=
+@
+
+\end{document}

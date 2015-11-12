@@ -1,0 +1,600 @@
+\documentclass{article}
+\usepackage{float}
+\usepackage{amsmath}
+
+  %% LaTeX margin settings:
+\setlength{\textwidth}{6.5in}
+\setlength{\textheight}{9in}
+\setlength{\oddsidemargin}{0in}
+\setlength{\evensidemargin}{0in}
+\setlength{\topmargin}{-1.5cm}
+\setlength{\maxwidth}{6.5in}
+
+\newcommand{\R}{{\sf R}}
+\newcommand{\bfbeta}{\mbox{\boldmath $\beta$}}
+\newcommand{\bfep}{\mbox{\boldmath $\epsilon$}}
+\newcommand{\bfD}{\mbox{\boldmath $D$}}
+\newcommand{\bfL}{\mbox{\boldmath $L$}}
+\newcommand{\bfR}{\mbox{\boldmath $R$}}
+\newcommand{\bfmu}{\mbox{\boldmath $\mu$}}
+\newcommand{\bfV}{\mbox{\boldmath $V$}}
+\newcommand{\bfX}{\mbox{\boldmath $X$}}
+
+\newcommand{\bfy}{\mbox{\boldmath $y$}}
+\newcommand{\bfz}{\mbox{\boldmath $z$}}
+\newcommand{\bfSig}{\mbox{\boldmath $\Sigma$}}
+\newcommand{\tr}{^{\sf T}}
+\newcommand{\inv}{^{-1}}
+
+
+\begin{document}
+
+<<setup, include=FALSE, cache=FALSE>>=
+opts_chunk$set(fig.width=5, fig.height=4, out.width='\\linewidth', dev='pdf', concordance=TRUE, size='footnotesize')
+options(replace.assign=TRUE,width=72, digits = 3, 
+        show.signif.stars = FALSE)
+
+require(xtable)
+display.xtable <- function(lmobj, ...){
+  sumry <- summary(lmobj)
+  captn <- paste("n = ", lmobj$df.residual + lmobj$rank,
+                      " rank = ", lmobj$rank)
+  if(class(lmobj)[1] == "lm")
+      captn <- paste(captn, " resid sd = ", round(sumry$sigma, options()$digits),
+                      " R-Squared = ", round( sumry$r.squared, options()$digits))
+  else if(class(lmobj)[1] == "glm")
+      captn <- paste(captn, " Resid Deviance = ", round(sumry$deviance, options()$digits))
+  xtable(sumry$coef[,1:3, drop=FALSE], caption = captn, ...)
+}
+@
+%% replace = with <-
+%% R output can go to 112 characters per line before wrapping
+%% print 3 significant digits
+
+\large
+\begin{center}
+{\Large \bf  Stat 506 Assignment 6 \vspace{.2in}} \\ 
+{\it Leslie Gains-Germain}
+\date{\today}
+\end{center}
+
+\begin{enumerate}
+
+\item Plot the data using panel or facet for each boy.
+
+\begin{figure}[H]
+<<plot, echo=FALSE, message=FALSE, fig.width=8>>=
+require(ggplot2)
+require(nlme)
+data(Oxboys)
+ggplot(Oxboys, aes(age, height))+geom_point()+facet_wrap(~Subject)
+@
+\caption{Height plotted versus standardized age for each of the $26$ Oxford boys.}
+\label{sub}
+\end{figure}
+
+\item Write out the full mixed model (random slope and intercept) with Greek letters and describe all distributions. Does the plot make it look like both random effects are needed? \\
+
+{\it The full mixed model is as follows,}
+\begin{align*}
+y_i &= \beta_0+\beta_1 age_i+b_{0,j[i]}+b_{1,j[i]}age_i+\epsilon_i \\
+\epsilon_i &\sim N(0, \sigma^2) \\
+\left[
+        \begin{array}[c]{r}
+          b_{0,j} \\
+          b_{1,j}
+        \end{array}\right] &\sim MVN
+\left(
+        \begin{array}[c]{r}
+          0 \\
+          0
+        \end{array},
+        \left[\begin{array}[c]{rr}
+          \sigma^2_{b0} & \sigma_{b0,b1} \\
+          \sigma_{b0,b1} & \sigma^2_{b1} 
+        \end{array} \right] \right) 
+\end{align*}
+%b_{0,j} &\sim N(0,\sigma^2_{b_0}) \\
+%b_{1,j} &\sim N(0, \sigma^2_{b_1})
+
+
+{\it where $b_{0,j}$ is the random adjustment to the intercept for subject $j$, and $b_{1,j}$ is the random adjustment to the slope for subject $j$, $j = 1,2,3,...,26$, and $i = 1,2,3,...,234$. From Figure \ref{sub}, we can see that the intercepts vary across subject but the slopes do not. Therefore, I think that a random intercept is needed, but a random slope is not needed.}
+
+\item To start out with a simple model, use no random effects – just one intercept and one slope. \\
+
+\begin{enumerate}
+
+\item Show the model description you feed into ‘jags’. Use noninformative priors. \\
+
+{\it With no random effects, the model description that we will feed into JAGS is as follows.}
+
+Model Setup: 
+\begin{align*}
+y_i &\sim N(\hat{y_i}, \tau) \\
+\tau &= \frac{1}{\sigma^2} \\
+\hat{y_i} &= \beta_0+\beta_1 age_i \\
+\end{align*}
+
+Priors: 
+\begin{align*}
+\beta_0 &\sim N(0,\frac{1}{1000}) \\
+\beta_1 &\sim N(0,\frac{1}{1000}) \\
+\sigma &\sim Unif(0,1000)
+\end{align*}
+
+\item Run jags with 4 or more chains starting at different parts of the parameter space. \\
+
+{\it My JAGS code is shown in the appendix.}
+
+<<jags, echo=FALSE, message=FALSE>>=
+setwd("~/Documents/Stat506/Homework/HW6")
+
+##write model file first
+cat("
+model
+{
+for(i in 1:N)
+{
+y[i] ~dnorm(y.hat[i], tau.y)
+y.hat[i] <- beta.0+beta.1*x[i]
+}
+beta.0~dnorm(0, .0001)
+beta.1~dnorm(0, .0001)
+tau.y <-pow(sigma.y, -2)
+sigma.y~dunif(0, 1000)
+}",
+file="jags-intro.jags")
+@
+
+<<jagscall, echo=FALSE, message=FALSE>>=
+##jags call
+library(R2jags)
+set.seed(52)
+
+oxboys.data <-with(Oxboys, list(N=nrow(Oxboys), y= height, x=age))
+
+oxboys.JAGs <-jags(model.file="jags-intro.jags", data = oxboys.data, parameters.to.save =
+                     c("beta.0", "beta.1", "sigma.y"), n.chains=4, n.iter=500)
+@
+
+\begin{itemize}
+\item Plot the traceplots for intercept, slope, residual SD, SE’s of intercept and slope.
+
+\begin{figure}[H]
+<<traceplotbeta0, echo=FALSE, message=FALSE, fig.width=10>>=
+#require(rjags)
+#Ask Kevin about this part
+# parameters to obtain from JAGS
+#parms <- c("beta.0", "beta.1", "sigma.y")
+# sampling after completed warmup
+#samples <- coda.samples(oxboys.JAGs, parms, n.iter=500)
+
+par(mfrow=c(1,3))
+
+#make traceplots
+#intercept
+attach.jags(oxboys.JAGs)
+plot(1:250, beta.0[1:250], type="l", col=4, main="intercept")
+lines(1:250, beta.0[1:250+250], type="l", col=2)
+lines(1:250, beta.0[1:250+500], type="l", col=3)
+lines(1:250, beta.0[1:250+750], type="l", col=5)
+
+#slope
+plot(1:250, beta.1[1:250], type="l", col=4, main="intercept")
+lines(1:250, beta.1[1:250+250], type="l", col=2)
+lines(1:250, beta.1[1:250+500], type="l", col=3)
+lines(1:250, beta.1[1:250+750], type="l", col=5)
+
+#residual SD
+plot(1:250, sigma.y[1:250], type="l", col=4, main="intercept")
+lines(1:250, sigma.y[1:250+250], type="l", col=2)
+lines(1:250, sigma.y[1:250+500], type="l", col=3)
+lines(1:250, sigma.y[1:250+750], type="l", col=5)
+
+detach()
+@
+\caption{Traceplots for intercept, slope, and residual standard deviation.}
+\label{trace}
+\end{figure}
+
+{\it The traceplots look good. All of the chains seem to be sampling from the entire parameter space.\\}
+
+
+\item Examine the summary of the output including confidence intervals and Rhat and effective sample size. Discuss any convergence issues.
+
+<<summary1, echo=FALSE, message=FALSE, results='asis'>>=
+xtable(oxboys.JAGs$BUGSoutput$summary)
+@
+
+
+<<summary, echo=FALSE, message=FALSE, out.width="0.7\\linewidth", results='asis'>>=
+require(xtable)
+#summary(gelman.diag(as.mcmc(oxboys.JAGs)))
+plot(oxboys.JAGs)
+oxboys.summary <- summary(as.mcmc(oxboys.JAGs))
+#xtable(head(oxboys.summary[[1]]))
+#xtable(head(oxboys.summary[[2]]))
+@
+
+{\it The output is shown above. All of the R hats are close to $1$, indicating that there were no convergence issues. Deviance has the largest correlation among iterations and the lowest effective sample size, but all of the effective sample sizes are well over $100$.\\
+
+The true mean height of average aged Oxford boys is estimated to be $149.37$ cm with a $95\%$ credible interval from $148.30$ to $150.41$ cm. The true mean height of the oldest Oxford boys is estimated to be $6.57$ cm greater than the average aged Oxford boys with a $95\%$ credible interval from $4.88$ to $8.11$ cm taller. The residual standard deviation is estimated to be $8.13$ with a $95\%$ credible interval from $7.42$ to $8.96$. \\}
+
+\item Compare estimates and SE’s to those from an lm fit.
+
+<<lmfit, echo=FALSE, message=FALSE, results='asis'>>=
+lm.fit <- lm(height~age, data=Oxboys)
+xtable(summary(lm.fit))
+@
+
+\begin{table}[H]
+\centering
+\caption{Estimates and standard errors for model parameters in the model with no random effects.}
+\begin{tabular}{c c c c c}
+parameter & estimate JAGS & SE JAGS & estimate lm & SE lm \\
+\hline
+$\beta_0$ & 149.358 & 0.547 & 149.3718 & 0.5286 \\
+$\beta_1$ & 6.511 & 0.821 & 6.5210 & 0.8170 \\
+$\sigma_y$ & 8.123 & 0.376 & 8.081 & NA \\
+\hline
+\end{tabular}
+\end{table}
+
+{\it The estimates for $\beta_0$ and $\beta_1$ in the JAGs model are very similar to the estimates from the lm fit. The estimate of the residual standard deviation is slightly larger in the JAGs model, and the standard errors of $\beta_0$ and $\beta_1$ are also slightly larger in the JAGs model compared to lm. }
+
+\end{itemize}
+
+\end{enumerate}
+
+\item Add a random intercept for each boy. Show the model and summarize output as in $3a$ and $3b$ above. No need to plot all $26$ individual traceplots, but you should look at them and show me a typical one. Compare to lmer output. \\
+
+{\it With a random intercept for each boy, the model description that we will feed into JAGS is as follows.}\\
+
+Model Setup: 
+\begin{align*}
+y_i &\sim N(\hat{y_i}, \tau_y) \\
+\tau_y &= \frac{1}{\sigma^2_y} \\
+\hat{y_i} &= \beta_0+\beta_1 age_i + b_{0,subject[i]} \\
+b_{0,subject} &\sim N(0,\tau_{b0})\\
+\tau_{b0}&=\frac{1}{\sigma_{b0}^2}
+\end{align*}
+
+Priors: 
+\begin{align*}
+\beta_0 &\sim N(0,\frac{1}{1000}) \\
+\beta_1 &\sim N(0,\frac{1}{1000}) \\
+\sigma_y &\sim Unif(0,1000) \\
+\sigma_{b0} &\sim Unif(0,1000)
+\end{align*}
+
+<<jagsrandomint, echo=FALSE, message=FALSE>>=
+setwd("~/Documents/Stat506/Homework/HW6")
+set.seed(52)
+##write model file first
+cat("
+model
+{
+for(i in 1:N) {
+y[i] ~dnorm(y.hat[i], tau.y)
+y.hat[i] <- beta.0+beta.1*x[i]+b0[subject[i]]
+}
+for(j in 1:J) {
+b0[j] ~ dnorm(0, tau.b0)
+}
+beta.0~dnorm(0, .0001)
+beta.1~dnorm(0, .0001)
+tau.y <-pow(sigma.y, -2)
+sigma.y~dunif(0, 1000)
+tau.b0 <- pow(sigma.b0, -2)
+sigma.b0~dunif(0,1000)
+}",
+file="jags-int.jags")
+@
+
+<<jagscallrandomint, echo=FALSE, message=FALSE>>=
+##jags call
+library(R2jags)
+set.seed(52)
+
+randomint.data <-with(Oxboys, list(N=nrow(Oxboys), J=length(unique(Subject)), 
+                                   subject=as.integer(Subject), y= height, x=age))
+
+randomint.JAGs <-jags(model.file="jags-int.jags", data = randomint.data, 
+                      parameters.to.save = c("b0", "beta.0", "beta.1", "sigma.y", "sigma.b0"),
+                      n.chains=4, n.iter=500)
+@
+
+<<rantrace, echo=FALSE, fig.width=10>>=
+par(mfrow=c(1,3))
+attach.jags(randomint.JAGs)
+plot(1:250, sigma.b0[1:250], type="l", col=4, main="SD of random intercept")
+lines(1:250, sigma.b0[1:250+250], type="l", col=2)
+lines(1:250, sigma.b0[1:250+500], type="l", col=3)
+lines(1:250, sigma.b0[1:250+750], type="l", col=5)
+
+plot(1:250, b0[,1][1:250], type="l", col=4, main="random intercept for boy 1")
+lines(1:250, b0[,1][1:250+250], type="l", col=2)
+lines(1:250, b0[,1][1:250+500], type="l", col=3)
+lines(1:250, b0[,1][1:250+750], type="l", col=5)
+
+plot(1:250, b0[,15][1:250], type="l", col=4, main="random intercept for boy 15")
+lines(1:250, b0[,15][1:250+250], type="l", col=2)
+lines(1:250, b0[,15][1:250+500], type="l", col=3)
+lines(1:250, b0[,15][1:250+750], type="l", col=5)
+@
+
+{\it The traceplots for $\sigma_{b0}$, $b_{0,1}$, and $b_{0,15}$ are shown. Again, the traceplots look good. All chains seem to be sampling from the entire parameter space.}
+
+<<summary2, echo=FALSE, results='asis'>>=
+xtable(randomint.JAGs$BUGSoutput$summary)
+@
+
+{\it There does not seem to be any problems with convergence because the R hat value for all parameters is close to $1$. The effective sample sizes do not raise any concerns. \\
+
+We get the same estimates for $\beta_0$ and $\beta_1$ as the previous model, which we would expect. We get a much lower estimate for the residual standard deviation, however, because the boy to boy variability in intercepts is now accounted for. The residual standard deviation is now estimated to be $1.32$ with a $95\%$ credible interval from $1.2$ to $1.45$. The boy to boy variability in heights for average aged boys is estimated to be $8.58$ with a $95\%$ credible interval from $6.43$ to $11.70$. \\
+
+We also notice that the standard error of $\beta_1$ is much lower than it was before adding a random intercept for boy, probably due to the smaller residual standard deviation. The standard error of $\beta_0$, however, has increased (I'm not sure why?). We also get an estimate for the random intercept adjustment for each of the $26$ boys. For example, the random intercept adjustment for boy $15$ is estimated to be $2.18$ with a $95\%$ credible interval from $-1.27$ to $5.54$. \\
+}
+
+{\it The fixed and random effect output from the lmer model is shown below.}
+
+<<lmer, echo=FALSE, message=FALSE>>=
+require(lme4)
+glm.fit <- lmer(height~age+(1|Subject), data=Oxboys)
+ranef(glm.fit)
+VarCorr(glm.fit)
+@
+
+<<lmerout, echo=FALSE, message=FALSE, results='asis'>>=
+display.xtable(summary(glm.fit))
+@
+
+
+{\it The below table compares the estimates and standard errors from the JAGs model  to the lmer fit. The fixed effects estimates are almost identical, although the standard errors vary slightly. The variance parameter estimates are slightly larger from the JAGs fit. Comparing the estimates of the random effects, the JAGs fit is very similar to lmer.
+
+Estimates for the random effects for boys $1$ and $15$ are shown as examples, and the other $24$ random intercepts can be compared from the model output shown above. }
+
+\begin{table}[H]
+\caption{Estimates and standard errors for model parameters in the model with a random intercept for each boy.}
+\centering
+\begin{tabular}{c c c c c}
+parameter & estimate JAGS & SE JAGS & estimate lmer & SE lmer \\
+\hline
+$\beta_0$ & 149.302 & 1.685 & 149.3717 & 1.5902 \\
+$\beta_1$ & 6.521 & 0.129 & 6.5239 & 0.1325 \\
+$\sigma_{b0}$ & 8.485 & 1.265 & 8.097 & NA \\
+$\sigma_y$ & 1.322 & 0.065 & 1.311 & NA \\
+$b_{0,1}$ & $-19.02$ & 1.75 & $-19.116$ & NA \\
+$b_{0,15}$ & 2.14 & 1.72 & 2.045 & NA \\
+\hline
+\end{tabular}
+\end{table}
+
+
+
+\item Add a random slope for each boy. Do not worry about setting up a MVN prior for the (intercept, slope) pair, just treat slope as unrelated to intercept. Show the model and summarize output as in $3a$ and $3b$ above. Use saved MCMC draws to compute the correlation between the slopes and intercepts random draws across all boys. Fit in lmer using \texttt{(1+age|Subject)} as random effects. How close is the correlation from MCMC draws to the correlation you get from \verb+VarCorr(lmer_model)+?
+
+{\it With a random intercept and slope for each boy, the model description that we will feed into JAGS is as follows.}\\
+
+Model Setup: 
+\begin{align*}
+y_i &\sim N(\hat{y_i}, \tau_y) \\
+\tau_y &= \frac{1}{\sigma^2_y} \\
+\hat{y_i} &= \beta_0+\beta_1 age_i + b_{0,subject[i]}+b_{1,subject[i]} \\
+b_{0,subject} &\sim N(0,\tau_{b0})\\
+\tau_{b0}&=\frac{1}{\sigma_{b0}^2} \\
+b_{1,subject} &\sim N(0,\tau_{b1}) \\
+\tau_{b1}&=\frac{1}{\sigma_{b1}^2}
+\end{align*}
+
+Priors: 
+\begin{align*}
+\beta_0 &\sim N(0,\frac{1}{1000}) \\
+\beta_1 &\sim N(0,\frac{1}{1000}) \\
+\sigma_y &\sim Unif(0,1000) \\
+\sigma_{b0} &\sim Unif(0,1000) \\
+\sigma_{b1} &\sim Unif(0,1000)
+\end{align*}
+
+<<jagsrandomslope, echo=FALSE, message=FALSE>>=
+setwd("~/Documents/Stat506/Homework/HW6")
+
+##write model file first
+cat("
+model
+{
+for(i in 1:N) {
+y[i] ~dnorm(y.hat[i], tau.y)
+y.hat[i] <- beta.0+beta.1*x[i]+b0[subject[i]]+b1[subject[i]]*x[i]
+}
+for(j in 1:J) {
+b0[j] ~ dnorm(0, tau.b0)
+b1[j] ~ dnorm(0, tau.b1)
+}
+beta.0~dnorm(0, .0001)
+beta.1~dnorm(0, .0001)
+tau.y <-pow(sigma.y, -2)
+sigma.y~dunif(0, 1000)
+tau.b0 <- pow(sigma.b0, -2)
+sigma.b0~dunif(0,1000)
+tau.b1 <- pow(sigma.b1, -2)
+sigma.b1~dunif(0,1000)
+}",
+file="jags-slope.jags")
+@
+
+<<jagscallrandomslope, echo=FALSE, message=FALSE>>=
+##jags call
+library(R2jags)
+set.seed(52)
+
+randomslope.data <-with(Oxboys, list(N=nrow(Oxboys), J=length(unique(Subject)), 
+                                   subject=as.integer(Subject), y= height, x=age))
+
+randomslope.JAGs <-jags(model.file="jags-slope.jags", data = randomslope.data, 
+                      parameters.to.save = c("beta.0", "beta.1", "b0", "b1", "sigma.y", "sigma.b0",
+                                             "sigma.b1"),
+                      n.chains=4, n.iter=500)
+@
+
+<<ranslopetrace, echo=FALSE, fig.width=10>>=
+par(mfrow=c(1,3))
+attach.jags(randomslope.JAGs)
+plot(1:250, sigma.b1[1:250], type="l", col=4, main="SD of random slope")
+lines(1:250, sigma.b1[1:250+250], type="l", col=2)
+lines(1:250, sigma.b1[1:250+500], type="l", col=3)
+lines(1:250, sigma.b1[1:250+750], type="l", col=5)
+
+plot(1:250, b1[,1][1:250], type="l", col=4, main="random slope for boy 1")
+lines(1:250, b1[,1][1:250+250], type="l", col=2)
+lines(1:250, b1[,1][1:250+500], type="l", col=3)
+lines(1:250, b1[,1][1:250+750], type="l", col=5)
+
+plot(1:250, beta.1[1:250], type="l", col=4, main="slope coefficient")
+lines(1:250, beta.1[1:250+250], type="l", col=2)
+lines(1:250, beta.1[1:250+500], type="l", col=3)
+lines(1:250, beta.1[1:250+750], type="l", col=5)
+@
+
+{\it The traceplots for the standard deviation of slopes, the random slope for boy $1$, and the overall slope coefficient are shown. I checked the traceplots for all $58$ parameters in this model and they all look similar to these. Again, there do not seem to be any noticeable differences among the four chains. \\
+
+The estimates and standard errors of model parameters are shown on the next page. Again, there are no convergence issues. All of the $\hat{R}$'s are close to $1$ and the effective sample sizes are well over $100$.\\
+
+The boy to boy variability in slopes is estimated to be $1.78$ with a $95\%$ credible interval from $1.32$ to $2.43$, and the boy to boy variability in intercepts is estimated to be $8.52$ with a $95\%$ credible interval from $6.56$ to $11.55$. We notice that the residual standard deviation is even smaller than it was in the previous model because now the model accounts boy to boy variability in slopes and intercepts. This makes the credible intervals for model parameters narrower. We also notice that the estimated variability in intercepts across boys is much greater than the estimated variability in slopes. This is consistent with what we saw in the panel plot in problem $1$. This is also confirmed when we notice that the estimated slopes for each boy do not vary nearly as much as the estimated intercepts.}
+
+<<summary3, echo=FALSE, results='asis'>>=
+print(xtable(randomslope.JAGs$BUGSoutput$summary), table.placement = getOption("xtable.table.placement", "H"))
+@
+
+{\it The output from the lmer model is shown below. Table \ref{lmer2} compares estimates and standard errors of some model parameters. Again, we see that the estimates and standard errors are very close.}
+
+<<xtable, echo=FALSE, results='asis'>>=
+require(lme4)
+glm.fit2 <- lmer(height~age+(1+age|Subject), data=Oxboys)
+#summary(glm.fit2)
+display.xtable(summary(glm.fit2))
+@
+
+
+<<lmer2, echo=FALSE, message=FALSE>>=
+ranef(glm.fit2)
+VarCorr(glm.fit2)
+@
+
+\begin{table}[H]
+\centering
+\caption{Estimates and standard errors for model parameters in the model with a random intercept and slope for each boy.}
+\label{lmer2}
+\begin{tabular}{c c c c c}
+parameter & estimate JAGS & SE JAGS & estimate lmer & SE lmer \\
+\hline
+$\beta_0$ & 149.381 & 1.645 & 149.3718 & 1.5854 \\
+$\beta_1$ & 6.530 & 0.356 & 6.5255 & 0.3363 \\
+$\sigma_{b0}$ & 8.471 & 1.231 & 8.0811 & NA \\
+$\sigma_{b1}$ & 1.759 & 0.280 & 1.6807 & NA \\
+$\sigma_y$ & 0.665 & 0.037 & 0.6599 & NA \\
+$b_{0,1}$ & -19.09 & 1.68 & -19.09 & NA \\
+$b_{1,1}$ & -2.68 & 0.48 & -2.79 & NA \\
+\hline
+\end{tabular}
+\end{table}
+
+{\it I used the mcmc output to calculate the average intercept and slope across all boys for each iteration. Then I found the correlation between these two vectors. The correlations for chains $1$ through $4$ are shown below. In all chains, the estimate for the correlation between random slope and intercept is very close to the lmer estimate of $0.64$.}
+
+<<corr, echo=FALSE>>=
+mc.save <- as.mcmc(randomslope.JAGs)
+
+#find average slope and average intercept across all boys then find correlation
+avg.int <- apply(mc.save[,1:26][[1]],2,mean)
+avg.slope <- apply(mc.save[,27:52][[1]],2,mean)
+
+cor(avg.int,avg.slope)
+
+#Chain 2
+avg.int2 <- apply(mc.save[,1:26][[2]],2,mean)
+avg.slope2 <- apply(mc.save[,27:52][[2]],2,mean)
+
+cor(avg.int2,avg.slope2)
+
+#Chain 3
+avg.int3 <- apply(mc.save[,1:26][[3]],2,mean)
+avg.slope3 <- apply(mc.save[,27:52][[3]],2,mean)
+
+cor(avg.int3,avg.slope3)
+
+##Chain 4
+avg.int4 <- apply(mc.save[,1:26][[4]],2,mean)
+avg.slope4 <- apply(mc.save[,27:52][[4]],2,mean)
+
+cor(avg.int4,avg.slope4)
+@
+
+
+\end{enumerate}
+
+\newpage
+
+\noindent {\Large \bf R Code Appendix}
+
+<<plot, echo=TRUE, eval=FALSE>>=
+@
+
+<<jags, echo=TRUE, eval=FALSE>>=
+@
+
+<<jagscall, echo=TRUE, eval=FALSE>>=
+@
+
+<<traceplotbeta0, echo=TRUE, eval=FALSE>>=
+@
+
+<<summary1, echo=TRUE, eval=FALSE>>=
+@
+
+<<summary, echo=TRUE, eval=FALSE>>=
+@
+
+<<lmfit, echo=TRUE, eval=FALSE>>=
+@
+
+<<jagsrandomint, echo=TRUE, eval=FALSE>>=
+@
+
+<<jagscallrandomint, echo=TRUE, eval=FALSE>>=
+@
+
+<<rantrace, echo=TRUE, eval=FALSE>>=
+@
+
+<<summary2, echo=TRUE, eval=FALSE>>=
+@
+
+<<lmer, echo=TRUE, eval=FALSE>>=
+@
+
+<<lmerout, echo=TRUE, eval=FALSE>>=
+@
+
+<<jagsrandomslope, echo=TRUE, eval=FALSE>>=
+@
+
+<<jagscallrandomslope, echo=TRUE, eval=FALSE>>=
+@
+
+<<ranslopetrace, echo=TRUE, eval=FALSE>>=
+@
+
+<<summary3, echo=TRUE, eval=FALSE>>=
+@
+
+<<xtable, echo=TRUE, eval=FALSE>>=
+@
+
+<<lmer2, echo=TRUE, eval=FALSE>>=
+@
+
+<<corr, echo=TRUE, eval=FALSE>>=
+@
+
+
+\end{document}

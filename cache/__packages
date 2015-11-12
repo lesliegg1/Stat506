@@ -1,0 +1,8 @@
+arm
+base
+knitr
+lme4
+MASS
+Matrix
+Rcpp
+xtable

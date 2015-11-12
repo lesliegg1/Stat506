@@ -1,0 +1,390 @@
+\documentclass{article}
+
+  %% LaTeX margin settings:
+\setlength{\textwidth}{6.5in}
+\setlength{\textheight}{9in}
+\setlength{\oddsidemargin}{0in}
+\setlength{\evensidemargin}{0in}
+\setlength{\topmargin}{-1.5cm}
+\setlength{\maxwidth}{6.5in}
+
+\newcommand{\R}{{\sf R}}
+\newcommand{\bfbeta}{\mbox{\boldmath $\beta$}}
+\newcommand{\bfep}{\mbox{\boldmath $\epsilon$}}
+\newcommand{\bfD}{\mbox{\boldmath $D$}}
+\newcommand{\bfL}{\mbox{\boldmath $L$}}
+\newcommand{\bfR}{\mbox{\boldmath $R$}}
+\newcommand{\bfmu}{\mbox{\boldmath $\mu$}}
+\newcommand{\bfV}{\mbox{\boldmath $V$}}
+\newcommand{\bfX}{\mbox{\boldmath $X$}}
+
+\newcommand{\bfy}{\mbox{\boldmath $y$}}
+\newcommand{\bfz}{\mbox{\boldmath $z$}}
+\newcommand{\bfSig}{\mbox{\boldmath $\Sigma$}}
+\newcommand{\tr}{^{\sf T}}
+\newcommand{\inv}{^{-1}}
+
+\usepackage{float}
+
+\begin{document}
+
+<<setup, include=FALSE, cache=FALSE>>=
+opts_chunk$set(fig.width=5, fig.height=4, out.width='\\linewidth', dev='pdf', concordance=TRUE, size='footnotesize')
+options(replace.assign=TRUE,width=72, digits = 3, 
+        show.signif.stars = FALSE)
+@
+%% replace = with <-
+%% R output can go to 112 characters per line before wrapping
+%% print 3 significant digits
+
+
+\large
+\begin{center}
+{\Large \bf  Stat 506 Assignment 3 \vspace{.2in}} \\ 
+{\it Leslie Gains-Germain}
+\end{center}
+February $6$, $2015$
+
+
+<<dat, echo=FALSE>>=
+cd4 <- read.csv("~/Documents/Stat506/Homework/HW3/mycd4.csv", head=T)
+cd4 <- subset(cd4, baseage!="NA")
+cd4 <- subset(cd4, cd4cnt!="NA")
+@
+
+<<begin, echo=FALSE, message=FALSE>>=
+cd4$vdate <- as.Date(cd4$vdate)
+cd4$sqrt <- as.numeric(sqrt(cd4$cd4pct) )
+cd4$datectr <- as.numeric(cd4$vdate-mean(cd4$vdate))
+cd4$ageadj <- as.numeric(cd4$visage-cd4$baseage)
+#require(lattice)
+#xyplot(sqrt~vdate|as.factor(treatmnt), cd4, ylab="Square Root of CD4 Percentage", 
+  #xlab="Date", type=c("p", "r"), strip=strip.custom(factor.levels=c("trt1", "trt2")),
+  #main="Relationship between sqrt(cd4pct) and date across treatment")
+@
+
+\begin{enumerate}
+
+\item Exercise 11.4 p 249, but use these data (a subset with missing values and singletons removed.)
+
+\begin{enumerate}
+\item Plot square root CD4 percentage over time with regression lines. Use the as.Date function to make visit days into a "date" object for plotting. A centered time column is also a good idea. \\
+
+{\it I first looked at a plot showing the relationship between square root CD4 percentage and time for every kid. Before adding regression lines for each kid, I broke the kids up by age group to make the plot more readable (so it wouldn't just be one plot with 173 lines on it). The result is below. I think I could work more on how to define the age groups so that there is about the same number of kids in each group.}
+
+<<ageplots, echo=FALSE, message=FALSE, fig.width=10, fig.height=6>>=
+age.factor <- cut(cd4$baseage, breaks=12)
+require(lattice)
+xyplot(sqrt~vdate|age.factor, group=newpid, cd4, 
+       ylab="Square Root of CD4 Percentage", xlab="Date", type=c("p", "r"), main="sqrt(cd4pct) vs date by age group")
+@
+
+{\it Here is the SAS version of the plot with a regression line for each kid.}
+
+\includegraphics[scale=0.8]{first.png}
+
+\item Create a fit for each kid using lmList in nlme package. (The intervals command creates 95\% CIs for each kid's intercept and slope.) \\
+
+{\it The following shows the intercept and slope estimates, with $95\%$ confidence intervals, for the first $6$ kids. I also used ODS OUTPUT in SAS to do this. I outputted a dataset with a row for each kid and their estimated intercept and slope. This was a pain to do in SAS. The dataset is below.}
+
+<<fit, echo=FALSE, message=FALSE, max.print=10>>=
+require(nlme)
+fit.age <- lmList(sqrt~ageadj|newpid, cd4)
+intervals(fit.age)[1:6, ,]
+@
+
+\includegraphics[scale=0.4]{ods.png}
+
+\item Extract coefficient vectors for each kid and obtain the two coefficient estimates. \\
+
+{\it The average of the estimated intercepts for each kid is $4.93$. The average of the estimated slopes for each kid is $-0.302$. These are the estimates we would get if we left \verb+kid+ out of the model.}
+
+<<extract, echo=FALSE, eval=FALSE>>=
+mean(coef(fit.age)[[1]])
+mean(coef(fit.age)[[2]])
+@
+
+\item Note that these children contracted HIV from their mothers at birth, so their base age tells us how long the virus has been in their systems. Use lm to obtain estimates for the whole population by fitting a model for intercept as a function of initial age and treatment, then fitting a similar model for slopes. Plot these fits and their "data points" (in quotes because they are estimates, not data). \\
+
+{\it The first table below shows a summary of the model for intercept as a function of initial age and treatment. There is strong evidence that a kid's intercept is related to baseage (p-value=$0.00985$) after accounting for treatment. For a kid coming in to his first hospital visit, his sqrt(cd4pct) is estimated to be $0.123$ lower than a kid one year younger. There is moderate evidence that a kid's intercept is related to treatment after accounting for baseage (p-value$=0.02233$). At his first hospital visit, a kid on treatment $2$ is estimated to have a sqrt(cd4pct) $0.48$ higher than a kid on treatment $1$.\\
+
+The SAS output is also below. I changed the reference level to treatment $1$, so we can easily see that the output is identical.}
+
+\includegraphics{ints.png}
+
+<<more, echo=FALSE, results='asis', message=FALSE>>=
+cd4.new <- data.frame(cd4$newpid, cd4$treatmnt, cd4$baseage)
+cd4.new <- unique(cd4.new)
+cd4.new$cd4.treatmnt <- as.factor(cd4.new$cd4.treatmnt)
+lm.int <-lm(coef(fit.age)[[1]]~cd4.treatmnt+cd4.baseage, data=cd4.new)
+require(xtable)
+xtable(summary(lm.int))
+@
+
+
+{\it In the plots below, it is pretty clear that the estimated intercept decreases with baseline age for both treatments $1$ and $2$.}
+
+<<plotint, echo=FALSE, out.width="0.5\\linewidth">>=
+xyplot(coef(fit.age)[[1]]~cd4.baseage|cd4.treatmnt, data=cd4.new, type=c("p","r"), xlab
+       ="Age when treatment starts", ylab=c("Estimated Intercept for each Kid"), main="Intercept")
+@
+
+\includegraphics[scale=0.8]{intsas.png}
+
+{\it The following shows the output (both R and SAS) for the model for slope as a fucntion of baseage and treatment. There is no evidence that the slope (relationship between sqrt(cd4pct) and age) depends on either baseage or treatment contingent upon the other variable being in the model.  }
+
+\includegraphics{slopes.png}
+
+<<slopes, echo=FALSE, results='asis', message=FALSE>>=
+lm.slope <- lm(coef(fit.age)[[2]]~cd4.treatmnt+cd4.baseage, data=cd4.new)
+xtable(summary(lm.slope))
+@
+
+{\it We can see in the plots below that the estimated slopes do not appear to change much across baseline age for either treatment.}
+
+<<plotslope, echo=FALSE, out.width="0.5\\linewidth">>=
+xyplot(coef(fit.age)[[2]]~cd4.baseage|cd4.treatmnt, data=cd4.new, type=c("p","r"), xlab
+       ="Age when treatment starts", ylab=c("Estimated Slope for each Kid"), main="Slopes")
+@
+
+\includegraphics[scale=0.8]{slopesas.png}
+
+\end{enumerate}
+
+\item Redo the plot and fit the same models in SAS. Use the plain GLM function without random or repeated statements. Compare output with R.
+
+{\it I incorporated the SAS output in with the R output.}
+
+\item Exercise 12.2 uses the same data, but now fitting with random effects.
+
+\begin{enumerate}
+\item Predict CD4\% as a function of time using random intercepts and slopes for each child (both R and SAS). 
+
+{\it Below is R and SAS output for 1. random intercepts and 2. random intercepts and slopes. For the random intercept model, we calculate $1.323^2=1.750$ and $0.758^2=0.574$, so the R output matches with the SAS output. For the random intercept and slope model, we calculate $1.304^2=1.700$, $(1.304)(0.583)(-0.073)=-0.055$, $0.583^2=0.340$ and $0.698^2=0.488$. The R output matches the SAS output.}
+
+{\bf Just intercept random:}
+
+{\footnotesize
+\begin{verbatim}
+Linear mixed-effects model fit by maximum likelihood
+ Data: cd4 
+       AIC      BIC    logLik
+  2535.376 2554.568 -1263.688
+
+Random effects:
+ Formula: ~1 | newpid
+        (Intercept)  Residual
+StdDev:    1.322925 0.7575567
+
+Fixed effects: sqrt ~ ageadj 
+                Value  Std.Error  DF  t-value p-value
+(Intercept)  4.952422 0.10948883 722 45.23221       0
+ageadj      -0.404077 0.05627747 722 -7.18009       0
+ Correlation: 
+       (Intr)
+ageadj -0.311
+
+Standardized Within-Group Residuals:
+        Min          Q1         Med          Q3         Max 
+-4.84075523 -0.47480506  0.00548256  0.46715601  5.09223422 
+
+Number of Observations: 896
+Number of Groups: 173 
+\end{verbatim}}
+
+{\bf Both intercept and slope random:}
+
+{\footnotesize
+\begin{verbatim}
+Linear mixed-effects model fit by maximum likelihood
+ Data: cd4 
+       AIC      BIC    logLik
+  2508.435 2537.222 -1248.217
+
+Random effects:
+ Formula: ~1 + ageadj | newpid
+ Structure: General positive-definite, Log-Cholesky parametrization
+            StdDev    Corr  
+(Intercept) 1.3040801 (Intr)
+ageadj      0.5826822 -0.073
+Residual    0.6984168       
+
+Fixed effects: sqrt ~ ageadj 
+                Value  Std.Error  DF  t-value p-value
+(Intercept)  4.948200 0.10709151 722 46.20535       0
+ageadj      -0.387341 0.07096596 722 -5.45812       0
+ Correlation: 
+       (Intr)
+ageadj -0.272
+
+Standardized Within-Group Residuals:
+        Min          Q1         Med          Q3         Max 
+-5.23717060 -0.41696537  0.02376671  0.41749766  5.11482679 
+
+Number of Observations: 896
+Number of Groups: 173 
+\end{verbatim}}
+
+\includegraphics[scale=0.5]{intout.png}
+\includegraphics[scale=0.5]{sloperan.png}
+
+<<random, echo=FALSE, message=FALSE>>=
+fit.lme <- lme(sqrt~ageadj, data=cd4, random=~1|newpid, method="ML")#random intercept for each kid
+fit.lme.int <- lme(sqrt~ageadj, data=cd4, random= ~1+ageadj|newpid, method="ML") #random intercept and slope
+@
+
+\begin{itemize}
+\item Interpret the "fixed" intercept and time effect.\\
+
+{\it Note that I used a maximum likelihood estimation method here because we are interpreting the fixed effects. There is strong evidence that sqrt(cd4pct) changes as the difference between kids' visit age and baseline age changes (p-value$<0.0001$). For a one year increase in the difference between visit age and baseline age, the sqrt(cd4pct) is estimated to decrease by $0.3873$, with a $95\%$ confidence interval from a $0.5265$ to a $0.2482$ decrease.}
+
+\item Is this model an improvement over the simpler "random intercept -- fixed slope" model? \\
+
+{\it Looking at the SAS output, we can see that the AIC for the random intercept model is $2535.4$, and the AIC for the random intercept and random slope model is $2508.4$. So, by AIC comparison, the random intercept random slope model is an improvement over the simple random intercept-fixed slope model.\\
+
+Now, turning our attention to the R output, there is strong evidence that the random intercept-random slope  model is an improvement over the simpler model (p-value$<0.0001$ from LRT-statistic=$30.94$).}
+
+<<improve, echo=FALSE>>=
+anova(fit.lme, fit.lme.int) #yes improvement
+@
+
+
+\end{itemize}
+
+\item Include age at baseline and treatment as fixed effects. Do they improve the model? (Both R and SAS).
+
+\includegraphics[scale=0.5]{fitmore.png}
+
+{\it We can see in the SAS output that the AIC for the model with the \verb+baseage+ and \verb+treatment+ variables is $2500.1$. So, this model is an improvement to the model with \verb+ageadj+ as the only fixed effect, but only by $8$ AIC points. Again, turning to the R output, we see that there is moderate evidence that the model with baseage and treatment is an improvement (p-value$=0.0021$ from LRT-stat$=12.29$). }
+
+<<include, echo=FALSE>>=
+fit.more <- lme(sqrt~ageadj+baseage+treatmnt, data=cd4, random= ~ ageadj|newpid, method="ML")
+##Still random intercept and slope for each kid
+anova(fit.lme.int, fit.more)
+@
+
+\item These data are noisy, so we don't get as obvious a picture of shrinkage as in Gelman's radon data, but we'll build the plot anyway. In either R or SAS provide a plot which shows the intercept estimates for each child plotted over initial age. Add an arrow (or can you think of a better way?) to show where they move to (how each one changes) when we fit them as random effects. 
+
+<<intercept, echo=FALSE, fig.width=8>>=
+with(cd4.new, plot(cd4.baseage, coef(fit.age)[[1]], xlab="Age when treatment starts", 
+                   ylab=c("Estimated Intercept for each Kid"), main="Intercepts"))
+#Shows intercept when kid is treated as fixed effect
+points(cd4.new$cd4.baseage, coef(fit.lme)[[1]], col="red", lwd=1.5)
+arrows(cd4.new$cd4.baseage, coef(fit.age)[[1]], cd4.new$cd4.baseage, coef(fit.lme)[[1]], lwd=0.8)
+#Now add arrows from black points to red ponits
+#why are there so fewer red points?
+@
+
+
+
+
+\end{enumerate}
+\end{enumerate}
+
+\newpage
+\noindent {\large \bf Code Appendix}
+
+<<dat, eval=FALSE>>=
+@
+<<begin, eval=FALSE>>=
+@
+<<ageplots, eval=FALSE>>=
+@
+<<fit, eval=FALSE>>=
+@
+<<extract, eval=FALSE>>=
+@
+<<more, eval=FALSE>>=
+@
+<<plotint, eval=FALSE>>=
+@
+<<slopes, eval=FALSE>>=
+@
+<<plotsslope, eval=FALSE>>=
+@
+<<random, eval=FALSE>>=
+@
+<<improve, eval=FALSE>>=
+@
+<<include, eval=FALSE>>=
+@
+<<intercept, eval=FALSE>>=
+@
+
+\newpage
+\noindent {\large \bf SAS Code}
+\begin{verbatim}
+DATA cd4;
+  INFILE "/folders/myfolders/newcd4.csv" firstobs=2 delimiter =',' dsd;
+  INPUT X $ visit newpid vdate $ cd4pct arv $ visage treatmnt $ cd4cnt baseage
+           sqrt datectr ageadj;
+  ;
+RUN;
+
+ODS trace on;
+PROC GLM DATA=cd4;
+	CLASS newpid;
+	MODEL sqrt = ageadj / SOLUTION;
+	BY newpid;
+	*OUTPUT OUT=fits P=ints;
+	ODS OUTPUT ParameterEstimates=ests;
+RUN;
+
+
+/*DATA fits2;
+	SET fits;
+    if ageadj=0;
+RUN;*/
+
+DATA fitints;
+	SET ests;
+    if Parameter="Intercept";
+RUN;
+
+DATA fitslopes;
+	SET ests;
+	if Parameter="ageadj";
+RUN;
+
+DATA test;
+	SET cd4;
+	BY newpid;
+	if last.newpid;
+RUN;
+
+DATA intslopes;
+   MERGE test fitints(rename=(Estimate=intercept)) fitslopes(rename=(Estimate=slope));
+   BY newpid;
+*PROC PRINT DATA=intslopes;
+RUN;
+
+PROC GLM DATA=intslopes PLOTS=all;
+	CLASS treatmnt / reference=first;
+	MODEL intercept = treatmnt baseage / SOLUTION;
+RUN;
+
+PROC GLM DATA=intslopes PLOTS=all;
+	CLASS treatmnt / reference=first;
+	MODEL slope = treatmnt baseage / SOLUTION;
+RUN; 
+
+PROC MIXED DATA=cd4 method=ml;
+  CLASS newpid;
+  MODEL sqrt = ageadj / SOLUTION;
+  random intercept / sub=newpid;
+RUN;
+
+PROC MIXED DATA=cd4 method=ml;
+  CLASS newpid;
+  MODEL sqrt = ageadj / s;
+  random intercept ageadj / type=un sub=newpid g;
+RUN;
+
+PROC MIXED DATA=cd4 method=ml;
+  CLASS newpid treatmnt;
+  MODEL sqrt = ageadj treatmnt baseage / s;
+  random intercept ageadj / type=un sub=newpid g;
+RUN;
+\end{verbatim}
+
+\end{document}

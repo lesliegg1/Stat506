@@ -1,0 +1,188 @@
+\documentclass{article}
+
+  %% LaTeX margin settings:
+\setlength{\textwidth}{6.5in}
+\setlength{\textheight}{9in}
+\setlength{\oddsidemargin}{0in}
+\setlength{\evensidemargin}{0in}
+\setlength{\topmargin}{-1.5cm}
+\setlength{\maxwidth}{6.5in}
+
+\newcommand{\R}{{\sf R}}
+\newcommand{\bfbeta}{\mbox{\boldmath $\beta$}}
+\newcommand{\bfep}{\mbox{\boldmath $\epsilon$}}
+\newcommand{\bfD}{\mbox{\boldmath $D$}}
+\newcommand{\bfL}{\mbox{\boldmath $L$}}
+\newcommand{\bfR}{\mbox{\boldmath $R$}}
+\newcommand{\bfmu}{\mbox{\boldmath $\mu$}}
+\newcommand{\bfV}{\mbox{\boldmath $V$}}
+\newcommand{\bfX}{\mbox{\boldmath $X$}}
+
+\newcommand{\bfy}{\mbox{\boldmath $y$}}
+\newcommand{\bfz}{\mbox{\boldmath $z$}}
+\newcommand{\bfSig}{\mbox{\boldmath $\Sigma$}}
+\newcommand{\tr}{^{\sf T}}
+\newcommand{\inv}{^{-1}}
+
+
+\begin{document}
+
+<<setup, echo=FALSE>>=
+## ----setup,echo=FALSE,results='hide',warning=FALSE, messages=FALSE-------
+opts_chunk$set(fig.width=5, fig.height=4, out.width='.5\\linewidth', dev='png', concordance=TRUE, size='footnotesize')
+options(replace.assign=TRUE,width=84, digits = 1, max.print="72",
+        show.signif.stars = FALSE)
+require(xtable)
+require(arm)
+@
+
+
+
+<<read, echo=FALSE, results='asis', cache=TRUE>>=
+nes <- foreign::read.dta("http://www.stat.columbia.edu/~gelman/arm/examples/nes/nes5200_processed_voters_realideo.dta",convert.factors=F)
+nes92 <- droplevels(subset(nes, !is.na(black) & !is.na(income) & !is.na(female)&
+                             !is.na(educ1) &!is.na(age)&!is.na(state)&year==1992))
+plotyear <- unique(sort(nes$year))
+@
+
+
+<<glmfit, echo=F, results='asis', cache=TRUE>>=
+nes92$c.income <- nes92$income-3
+nes92$sc.age <- (nes92$age-mean(nes92$age))/10
+nes92$y <- nes92$presvote_2party -1
+nes92$age.discrete <- cut (nes92$age, c(0,29.5, 44.5, 64.5, 200))
+nes92$female <- nes92$gender - 1
+nes92$education <- nes92$educ2 - 3
+nes92 <- subset(nes92, !is.na(y+ c.income + gender +sc.age + black + education + ideo7 + partyid7))
+nes.glm <- glm(y ~ c.income +sc.age + female * black + education + ideo7 +partyid7,  data=nes92, family=quasibinomial)
+coef92 <- summary(nes.glm)$coef
+@
+
+
+<<glmfit2, echo=FALSE, results='asis', cache=TRUE>>=
+xtable(summary(nes.glm)$coef, caption = "glm Model")
+#summary(nes.glm)$coef
+@
+
+<<lmerfit, echo=FALSE, results='asis', fig.height=5, fig.width=10, out.width="0.5\\linewidth", warning=FALSE, cache=TRUE>>=
+require(lme4)
+data(county.fips,package="maps")
+state <- sapply(as.character(county.fips$polyname), function(x) strsplit(x, split=",")[[1]][1])
+nes92$state <- factor(state[match(nes92$fips_cty, county.fips$fips)])
+nes92 <- subset(nes92, !is.na(y+ c.income + female *black +sc.age + educ2 + ideo7) & !is.na(state))
+nes.lmer1 <-  glmer(y ~ c.income + female *black +sc.age + educ2 + ideo7 +(1|state),
+                    data=nes92, family=binomial)
+xtable(summary(nes.lmer1)$coef, caption = "glmer Coefficiets")
+#xtable(confint(nes.lmer1), caption = "glmer 95 percent CIs" )
+
+nes92$linPred <- nes.lmer1@pp$X %*% fixef(nes.lmer1)
+nes92$jitterVote <- with(nes92, presvote_2party - 1 + ifelse( presvote_2party > 1, -1, 1)*runif( nrow(nes92),0,.1))
+
+my.states <- levels(nes92$state)[c(1:3,11,12,20,28, 31)] ##sort(sample(levels(nes92$state), 8))
+
+par(mfrow=c(2,4))
+for(st in my.states){
+  plot(jitterVote ~ linPred, data = nes92, subset= state==st,
+       main = st)
+  for(sim in 1:20)
+    curve( invlogit(rnorm(1, ranef(nes.lmer1)$state[as.character(st),],
+                          se.coef(nes.lmer1)$state[st,1]) +x), add=T,col="grey",lwd=.5,lty=4)
+  curve( invlogit(ranef(nes.lmer1)$state[st,1] +x), add=T)
+}
+@
+
+<<Ex15.2-nes2000, results='asis',echo=FALSE>>=
+nes00 <- droplevels(subset(nes, !is.na(black) & !is.na(income) & !is.na(female)&
+                             !is.na(educ1) &!is.na(age)&!is.na(state)&year==2000))
+nes00$cid7 <- nes00$ideo7-3
+nes00$c.income <- nes00$income-3
+nes00$sc.age <- (nes00$age-mean(nes00$age))/10
+nes00$female <- nes00$gender - 1
+nes00$education <- nes00$educ2 - 3
+nes00$state <- factor(nes00$state)
+fit00 <- lmer(partyid7 ~ black + female + cid7 + (1|state), data=nes00)
+fit00.1 <- lmer(partyid7 ~ black * female + cid7 + (1|state), data=nes00)
+fit00.2 <- lmer(partyid7 ~ black * female + cid7 + (1|state) +(0+cid7|state), data=nes00)
+fit00.4 <- lmer(partyid7 ~ (black + female) * cid7 + (1|state), data=nes00)
+xtable(coef00 <- summary(fit00.4)$coef)
+xtable(confint(fit00.4))
+@
+
+
+<<ranEfs, results='hide', echo=FALSE>>=
+##par(mfrow=c(1,2))
+qqnorm(ranef(fit00.4)[[1]][, 1])
+qqline(ranef(fit00.4)[[1]][, 1])
+##qqnorm(ranef(fit00.2)[[1]][, 2])
+##qqline(ranef(fit00.2)[[1]][, 2])
+@
+
+\end{document}
+
+
+## ----read1,eval=FALSE----------------------------------------------------
+## nes <- foreign::read.dta("http://www.stat.columbia.edu/~gelman/arm/examples/nes/nes5200_processed_voters_realideo.dta",convert.factors=F)
+## nes92 <- droplevels(subset(nes, !is.na(black) & !is.na(income) & !is.na(female)&
+##           !is.na(educ1) &!is.na(age)&!is.na(state)&year==1992))
+## plotyear <- unique(sort(nes$year))
+
+## ----glmfit,eval=FALSE---------------------------------------------------
+## nes92$c.income <- nes92$income-3
+## nes92$sc.age <- (nes92$age-mean(nes92$age))/10
+## nes92$y <- nes92$presvote_2party -1
+## nes92$age.discrete <- cut (nes92$age, c(0,29.5, 44.5, 64.5, 200))
+## nes92$female <- nes92$gender - 1
+## nes92$education <- nes92$educ2 - 3
+## nes92 <- subset(nes92, !is.na(y+ c.income + gender +sc.age + black + education + ideo7 + partyid7))
+## nes.glm <- glm(y ~ c.income +sc.age + female * black + education + ideo7 +partyid7,  data=nes92, family=quasibinomial)
+## coef92 <- summary(nes.glm)$coef
+## 
+
+## ----glmfit2,eval=FALSE--------------------------------------------------
+## xtable(summary(nes.glm)$coef, caption = "glm Model")
+
+## ----lmerfit,eval=FALSE--------------------------------------------------
+## require(lme4)
+##  data(county.fips,package="maps")
+##  state <- sapply(as.character(county.fips$polyname), function(x) strsplit(x, split=",")[[1]][1])
+## nes92$state <- factor(state[match(nes92$fips_cty, county.fips$fips)])
+## nes92 <- subset(nes92, !is.na(y+ c.income + female *black +sc.age + educ2 + ideo7) & !is.na(state))
+## nes.lmer1 <-  glmer(y ~ c.income + female *black +sc.age + educ2 + ideo7 +(1|state),
+##                    data=nes92, family=binomial)
+##  xtable(summary(nes.lmer1)$coef, caption = "glmer Coefficiets")
+##  xtable(confint(nes.lmer1), caption = "glmer 95 percent CIs" )
+## 
+##  nes92$linPred <- nes.lmer1@pp$X %*% fixef(nes.lmer1)
+##  nes92$jitterVote <- with(nes92, presvote_2party - 1 + ifelse( presvote_2party > 1, -1, 1)*runif( nrow(nes92),0,.1))
+## 
+## my.states <- levels(nes92$state)[c(1:3,11,12,20,28, 31)] ##sort(sample(levels(nes92$state), 8))
+## 
+## par(mfrow=c(2,4))
+##  for(st in my.states){
+##    plot(jitterVote ~ linPred, data = nes92, subset= state==st,
+##              main = st)
+##         for(sim in 1:20)
+##             curve( invlogit(rnorm(1, ranef(nes.lmer1)$state[as.character(st),],
+##             se.coef(nes.lmer1)$state[st,1]) +x), add=T,col="grey",lwd=.5,lty=4)
+##         curve( invlogit(ranef(nes.lmer1)$state[st,1] +x), add=T)
+##   }
+
+## ----nes2000, eval=FALSE-------------------------------------------------
+## nes00 <- droplevels(subset(nes, !is.na(black) & !is.na(income) & !is.na(female)&
+##           !is.na(educ1) &!is.na(age)&!is.na(state)&year==2000))
+## nes00$cid7 <- nes00$ideo7-3
+## nes00$c.income <- nes00$income-3
+## nes00$sc.age <- (nes00$age-mean(nes00$age))/10
+## nes00$female <- nes00$gender - 1
+## nes00$education <- nes00$educ2 - 3
+## nes00$state <- factor(nes00$state)
+## fit00 <- lmer(partyid7 ~ black + female + cid7 + (1|state), data=nes00)
+## fit00.1 <- lmer(partyid7 ~ black * female + cid7 + (1|state), data=nes00)
+## fit00.2 <- lmer(partyid7 ~ black * female + cid7 + (1|state) +(0+cid7|state), data=nes00)
+## fit00.4 <- lmer(partyid7 ~ (black + female) * cid7 + (1|state), data=nes00)
+## xtable(coef00 <- summary(fit00.4)$coef)
+## xtable(confint(fit00.4))
+
+## ----ranEfs , eval=FALSE-------------------------------------------------
+## NA
+

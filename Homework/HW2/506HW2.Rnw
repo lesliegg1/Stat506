@@ -1,0 +1,198 @@
+\documentclass{article}
+
+  %% LaTeX margin settings:
+\setlength{\textwidth}{6.5in}
+\setlength{\textheight}{9in}
+\setlength{\oddsidemargin}{0in}
+\setlength{\evensidemargin}{0in}
+\setlength{\topmargin}{-1.5cm}
+\setlength{\maxwidth}{6.5in}
+
+\newcommand{\R}{{\sf R}}
+\newcommand{\bfbeta}{\mbox{\boldmath $\beta$}}
+\newcommand{\bfep}{\mbox{\boldmath $\epsilon$}}
+\newcommand{\bfD}{\mbox{\boldmath $D$}}
+\newcommand{\bfL}{\mbox{\boldmath $L$}}
+\newcommand{\bfR}{\mbox{\boldmath $R$}}
+\newcommand{\bfmu}{\mbox{\boldmath $\mu$}}
+\newcommand{\bfV}{\mbox{\boldmath $V$}}
+\newcommand{\bfX}{\mbox{\boldmath $X$}}
+
+\newcommand{\bfy}{\mbox{\boldmath $y$}}
+\newcommand{\bfz}{\mbox{\boldmath $z$}}
+\newcommand{\bfSig}{\mbox{\boldmath $\Sigma$}}
+\newcommand{\tr}{^{\sf T}}
+\newcommand{\inv}{^{-1}}
+
+\usepackage{float}
+
+\begin{document}
+
+<<setup, include=FALSE, cache=FALSE>>=
+opts_chunk$set(fig.width=5, fig.height=4, out.width='\\linewidth', dev='pdf', concordance=TRUE, size='footnotesize')
+options(replace.assign=TRUE,width=72, digits = 3, 
+        show.signif.stars = FALSE)
+@
+%% replace = with <-
+%% R output can go to 112 characters per line before wrapping
+%% print 3 significant digits
+
+
+\large
+\begin{center}
+{\Large \bf  Stat 506 Assignment 2 \vspace{.2in}} \\ 
+{\it Leslie Gains-Germain}
+\end{center}
+January $30$, $2015$
+
+\begin{enumerate}
+
+\item Researchers in Jordan are interested in plants useable for animal fodder which require little moisture. They tested four plant species in a greenhouse experiment varying the daily watering from 50 to 650 mm in 100 mm increments. Within each species, water amounts were allocated at random. The response is dry biomass. Read in the data from here.
+
+\begin{enumerate}
+\item Use SAS to plot the data in a manner which allows us to easily compare mean biomass for each species as a function of water.
+{\it Note the dot at the mean for each combination of species and water in the boxplots below.}
+
+\includegraphics[scale=.8]{box1.png}
+
+\item Also plot biomass by water separating them into panels by species and adding a regression line to each panel.
+
+\includegraphics[scale=.6]{panel.png}
+
+\item Fit a model with an intercept and a slope for each species.
+   $y_i = \beta_0 + \beta_1 x_i + \alpha_{0j[i]} + \alpha_{1j[i]} x_i + \epsilon_i$.
+    In this notation, i is the row number, j[i] is the plant species of the plant in row i (j = 1 to 4), $\beta$'s are overall effects, and $\alpha$'s are adjustments for each plant species.
+        \begin{enumerate}
+        \item Fit this model in SAS and show the estimated coefficients.
+        
+\includegraphics[scale=0.5]{est1.png}
+        \item Provide either the Type I or Type III output table, and explain why you think this table is preferred. Is the interaction needed?
+        
+\includegraphics[scale=0.5]{type1.png}
+
+{\it I prefer the type I sums of squares because I think the sequential sums of squares provide useful information. Consider the water row in the above table. The p-value in this row compares a model with species and water and predictors to a model with just species as a predictor. I think this p-value could be meaningful in some situations. The p-value for the water row in the type III sums of squares table is not meaningful because we would almost never consider a model with a water*species interaction but no water main effect. \\
+
+Yes, the interaction is needed. There is strong evidence that the relationship between mean biomass and water depends on species (p-value$=0.0003$).}
+
+\item What combination of Greek letters is estimated by each coefficient shown?
+
+\begin{table}[H]
+\begin{tabular}{c|c}
+Intercept & $\beta_0+\alpha_{04}$ \\
+Species $1$ & $\alpha_{01}-\alpha_{04}$ \\
+Species $2$ & $\alpha_{02}-\alpha_{04}$ \\
+Species $3$ & $\alpha_{03}-\alpha_{04}$ \\
+water & $\beta_1 + \alpha_{14}$ \\
+water*species $1$ & $\alpha_{11}-\alpha_{14}$ \\
+water*species $2$ & $\alpha_{12}-\alpha_{14}$ \\
+water*species $3$ & $\alpha_{13}-\alpha_{14}$ 
+\end{tabular}
+\end{table}
+        
+\item Plot the four lines from the interaction model.
+        
+\includegraphics[scale=0.5]{lines.png}
+      
+        \item Provide the default diagnostic plots and comment on how well the assumptions are met. 
+    No random effects on this one, but do comment on your plots and models.
+    
+\includegraphics[scale=0.5]{diags1.png}
+
+{\it The residual vs. predicted values plot shows a funnel shape, which indicates that the constant variance assumption is violated. I'm hesistant to trust the p-values with these severe of a violation. We also see that the distribution of responses is heavy tailed, which is a violation that can interfere with our analysis. I did a log transformation to see how that would change our results. \\
+
+The funnel pattern is no longer evident in the residuals vs. predicted values plot, but there are more large negative residuals than we would expect under normality. This is confirmed by the long left tail we see in the histogram of log(responses). It looks like the log transformation overdid it slightly. \\
+
+The most notable change, however, is that the p-value for the interaction term is now $0.9237$! So perhaps the interaction between water and species isn't needed. I think we should take more time to think about what model is appropriate for this situation.}
+
+\includegraphics[scale=0.5]{table.png}
+
+\includegraphics[scale=0.5]{diaglog.png}
+\end{enumerate}
+
+\item Fit the same model in R and compare your conclusions from both fits. 
+
+<<plant, echo=FALSE, results='asis', message=FALSE>>=
+plants <- read.csv("~/Documents/Stat505/data files/plantBiomass.csv", head=T)
+plants$species <- factor(plants$species, levels=c("4", "1", "2", "3"))
+lm.fit <- lm(biomass~species*water, data=plants)
+require(xtable)
+xtable(summary(lm.fit))
+xtable(anova(lm.fit))
+@
+
+{\it The ANOVA type I SS table is exactly the same when we fit the same model in R. I set species four as the reference level in R, and after doing so the table of estimates is exactly the same as the table of estimates given by SAS. Our conclusions are the same no matter which software package we choose.}
+
+\end{enumerate}
+
+\newpage
+
+\item In Stat 505 HW5 we analyzed the Sitka data from the MASS package. Pull it into SAS, and rerun the analysis. Specifically:
+\begin{enumerate}
+\item Plot size over time, separating the two groups, and using a different line for each individual tree.
+
+\includegraphics[scale=0.5]{panel2.png}
+
+\item Use PROC MIXED to fit a quadratic model across all the data. Do we need intercept, slope, and/or quadratic coefficients to depend on treatment? As in R, use REML (the default) when comparing random effects, ML for fixed effects. \\
+
+{\it There is weak evidence of curvature in the relationship between time and biomass (p-value$=0.0054$.) According to this model, there is no evidence that the slope or quadratic coefficients depend on treatment (p-values$=0.9758$ and $0.9034$ respectively).}
+
+\includegraphics[scale=0.5]{effects.png}
+
+\item The only ACF plot I'm finding in SAS is in PROC MI (multiple imputation), and I think it refers to MCMC sequences. That's not helpful. So we may have to do it blindly. Fit the same model(s) for correlation as you did in R by using PROC MIXED. Compare with the models in (a). \\
+
+{\it I fit three different models with compound symmetric, AR(1), and symmetric correlation structures. I compared the AIC's of all four models I fit. The table below shows the AIC for each model. Note that each model included a time, $time^2$, treatment, time*treatment, and $time^2*treatment$ term.}
+
+\begin{table}[H]
+\begin{tabular}{c|c}
+Model & AIC \\
+\hline \\
+Independent Errors & $761.5$ \\
+Compound Symmetric & $29.7$ \\
+AR-1 & $-118.4$ \\
+Symmetric & $-138.7$
+\end{tabular}
+\end{table}
+
+{\it We see that the symmetric correlation structure has the lowest AIC. The AR-1 model also has a low AIC, so I will choose this model for inference because it is simpler(and has only one covariance parameter to estimate).}
+
+\item After finding a model with reasonable correlation structure, see if you can prune back the fixed effects. Provide diagnostic plots and explain your model.\\
+
+{\it Below on the left is the table of coefficients for the model with AR-1 correlation structure. I chose to remove the $time^2*treatment$ term (p-value$=0.6168$). After doing so, there is strong evidence that the relationship between time and mean biomass depends on treatment (p-value$<0.0013$). }
+
+\includegraphics[scale=0.5]{est2.png}
+\includegraphics[scale=0.5]{fixedests.png}
+
+{\it This means that there is evidence that the rate of tree growth depends on the treatment. Further examination of the coefficient estimates shows us that the rate of growth in an ozone environment is estimated to be $0.0022$ units lower than the rate of growth in the control environment. }
+
+\includegraphics[scale=0.5]{solns.png}
+
+{\it The diagnostic plots do not show any severe violations of the model assumptions.}
+
+\includegraphics[scale=0.5]{resids2.png}
+
+\item Compare to the results from HW5 last fall. \\
+
+{\it I printed the results from the model I fit in the fall. The ANOVA table looks different because R gives us type I SS by default and SAS gives us type III SS by default in the PROC mixed procedure. Additionally, the coefficient estimates are slightly different. I chose to use a symmetric correlation structure in the fall, and I used varPower() to allow for increasing variance as the mean biomass increases. Biologically, this makes sense because as trees grow and age we would expect to see larger variation in biomass. \\
+
+Overall, however, our conclusions are the same in both models. The ozone enriched environment does appear to be associated with slower growth rates of sitka trees.}
+
+<<sitdat, echo=FALSE, message=FALSE, results='asis'>>=
+require(MASS)
+data(Sitka)
+time2 <- Sitka$Time^2
+require(nlme)
+sitka.gls51 <- gls(size~Time+time2+treat+Time*treat, data=Sitka, correlation=corSymm(rep(.9,10),form=~1|tree), weights=varPower())
+require(xtable)
+xtable(anova(sitka.gls51))
+xtable(summary(sitka.gls51)$tTable)
+@
+
+
+\end{enumerate}
+
+\end{enumerate}
+
+
+
+
+\end{document}
